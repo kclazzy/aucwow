@@ -68,9 +68,10 @@ COLUMNS = [  # (поле, подстроки заголовка); порядок
     ("item", ("item", "name", "предмет", "назван", "товар")),
     ("market", ("market", "рын")),
     ("avg", ("average", "avg", "сред")),
-    ("min", ("lowest", "min", "мин", "buyout", "выкуп", "дешев")),
-    ("qty", ("for sale", "quantity", "qty", "stock", "кол", "на продаже", "лот")),
     ("vendor", ("vendor", "вендор", "npc")),
+    ("min", ("lowest", "min", "мин", "buyout", "выкуп", "дешев", "price", "cost", "floor", "цена", "стоим")),
+    ("qty", ("for sale", "quantity", "qty", "stock", "кол", "на продаже", "лот", "avail", "listed", "supply", "volume",
+             "units", "amount", "предлож", "остат", "налич")),
 ]
 CATEGORY = [  # подстрока категории -> (class_id, subclass_id); ID как в Retail, для Forever не подтверждены
     (("cloth", "ткан"), (7, 5)), (("leather", "кож"), (7, 6)), (("metal", "stone", "руд", "металл"), (7, 7)),
@@ -125,46 +126,83 @@ def _item(cell: dict):
     return int(m.group(1)), name, category, level
 
 
+def _header(table):
+    """Ищет строку заголовков среди первых трёх строк таблицы. -> (индекс строки, {колонка: поле}) или (None, {})."""
+    for idx, row in enumerate(table[:3]):
+        cols = {}
+        for i, cell in enumerate(row):
+            f = _header_field(cell["text"])
+            if f and f not in cols.values():
+                cols[i] = f
+        if len(cols) >= 2:
+            return idx, cols
+    return None, {}
+
+
+def _complete(cols) -> bool:
+    fields = set(cols.values())
+    return "item" in fields and "qty" in fields and bool({"min", "market"} & fields)
+
+
+def _table_rows(table, cols, unit, start):
+    rows = []
+    for tr in table[start:]:
+        vals = {cols[i]: c for i, c in enumerate(tr) if i in cols}
+        it = _item(vals["item"]) if "item" in vals else None
+        qty = _count(vals["qty"]["text"]) if "qty" in vals else None
+        if not it or qty is None:
+            continue
+        g = lambda k: _money(vals[k]["text"], unit) if k in vals else None
+        mn, mk = g("min"), g("market")
+        if mn is None and mk is None:
+            continue
+        rows.append(dict(item_id=it[0], name=it[1], category=it[2], level=it[3], min=mn if mn is not None else mk,
+                         market=mk if mk is not None else mn, avg=g("avg"), qty=qty, vendor=g("vendor")))
+    return rows
+
+
+def _diagnostics(html: str, tables) -> str:
+    heads = []
+    for n, t in enumerate(tables[:4], 1):
+        first = next((r for r in t[:3] if r), [])
+        heads.append(f"таблица {n}: строк {len(t)}, заголовки [{' | '.join(c['text'].strip()[:20] for c in first[:10])}]")
+    link = ITEM_LINK.search(html)
+    around = ""
+    if link:
+        a = html.rfind("<a", 0, link.start())
+        around = " Первая ссылка на предмет: " + re.sub(r"\s+", " ", html[max(0, a):a + 160])
+    return (f"получено {len(html)} символов, таблиц: {len(tables)}, скриптов: {len(re.findall(r'<script', html, re.I))}, "
+            f"ссылок на предметы: {len(ITEM_LINK.findall(html))}; " + "; ".join(heads) + "." + around)
+
+
 def parse_html(html: str, unit: str = "copper") -> list:
     p = _Tables()
     try:
         p.feed(html or "")
     except Exception as exc:                      # битая разметка не должна ронять приложение
         raise WebSourceError(f"не удалось разобрать страницу: {exc}") from exc
+    carried = {}                                  # заголовки могут лежать в отдельной таблице перед данными
     for table in p.tables:
         if not table:
             continue
-        cols = {}
-        for i, cell in enumerate(table[0]):
-            f = _header_field(cell["text"])
-            if f and f not in cols.values():
-                cols[i] = f
-        fields = set(cols.values())
-        if "item" not in fields or "qty" not in fields or not ({"min", "market"} & fields):
-            continue
-        rows = []
-        for tr in table[1:]:
-            vals = {cols[i]: c for i, c in enumerate(tr) if i in cols}
-            it = _item(vals["item"]) if "item" in vals else None
-            qty = _count(vals["qty"]["text"]) if "qty" in vals else None
-            if not it or qty is None:
-                continue
-            g = lambda k: _money(vals[k]["text"], unit) if k in vals else None
-            mn, mk = g("min"), g("market")
-            if mn is None and mk is None:
-                continue
-            rows.append(dict(item_id=it[0], name=it[1], category=it[2], level=it[3], min=mn if mn is not None else mk,
-                             market=mk if mk is not None else mn, avg=g("avg"), qty=qty, vendor=g("vendor")))
+        idx, cols = _header(table)
+        if idx is not None and _complete(cols):
+            rows = _table_rows(table, cols, unit, idx + 1)
+        elif carried and any(_item(c) for r in table[:3] for c in r):
+            rows = _table_rows(table, carried, unit, 0)
+        else:
+            rows = []
         if rows:
             return rows
+        if idx is not None and len(cols) >= 2:
+            carried = cols
     html = html or ""
     rows = _parse_json(html, unit)               # страница могла отдать данные JSON-блоком, а таблицу нарисовать скриптом
     if rows:
         return rows
-    stats = (f"получено {len(html)} символов, таблиц: {len(p.tables)}, скриптов: {len(re.findall(r'<script', html, re.I))}, "
-             f"ссылок на предметы: {len(ITEM_LINK.findall(html))}")
-    raise WebSourceError("таблица цен не найдена: страница, возможно, подгружает данные скриптом. Откройте её в браузере, "
-                         f"раскройте весь список, сохраните страницу (Ctrl+S) и укажите файл. ({stats})")
+    raise WebSourceError("таблица цен не найдена: страница, возможно, подгружает данные скриптом или заголовки не распознаны. "
+                         "Откройте её в браузере, раскройте весь список, сохраните страницу (Ctrl+S) и укажите файл. "
+                         f"({_diagnostics(html, p.tables)})")
 
 
 JSON_KEYS = {  # поле -> варианты ключей (в нижнем регистре, без _ и -)
@@ -265,6 +303,18 @@ class WebClient:
         except (OSError, ValueError) as exc:
             raise WebSourceError(f"{source}: не удалось получить страницу: {exc}") from exc
 
+    def _save_debug(self, html: str):
+        """Нераспознанную страницу кладёт в папку данных (last_page.html): по ней можно доработать разбор."""
+        d = self.cfg.get("debug_dir")
+        if not d:
+            return None
+        try:
+            path = Path(d) / "last_page.html"
+            path.write_text(html, encoding="utf-8")
+            return str(path)
+        except OSError:
+            return None
+
     def load(self):
         """Файлы (если указаны) важнее ссылок. Несколько источников через «;» или с новой строки: списки объединяются
         (повторы предметов берутся из последнего), так можно собрать все категории или все страницы списка."""
@@ -274,10 +324,13 @@ class WebClient:
             raise WebSourceError("не указана ссылка на страницу с ценами или файл страницы (Настройки → Источник без API).")
         merged = {}
         for source in (files or urls):
+            html = self._read(source, bool(files))
             try:
-                rows = parse_html(self._read(source, bool(files)), self.cfg.get("web_price_unit", "copper"))
+                rows = parse_html(html, self.cfg.get("web_price_unit", "copper"))
             except WebSourceError as exc:
-                raise WebSourceError(exc if source in str(exc) else f"{source}: {exc}") from exc
+                saved = self._save_debug(html)
+                extra = f" Страница сохранена для анализа: {saved}" if saved else ""
+                raise WebSourceError(f"{exc if source in str(exc) else f'{source}: {exc}'}{extra}") from exc
             for r in rows:
                 merged[r["item_id"]] = r
         self.rows = list(merged.values())

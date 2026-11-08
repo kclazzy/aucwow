@@ -44,7 +44,7 @@ def _run(h, cfg, progress, mark=True):
         demo.seed_history(store, now - 600)
         client = demo.DemoClient()
     elif cfg.get("source") == "web":
-        client = websource.WebClient(cfg).load()                   # без API: таблица цен со страницы или из файла
+        client = websource.WebClient({**cfg, "debug_dir": str(h)}).load()                   # без API: таблица цен со страницы или из файла
         store = Store(h / "history.sqlite")
         progress(f"Таблица цен загружена: {len(client.rows)} предметов.")
         items = {**client.vendor_items(), **items}                # свой список вендоров важнее данных сайта

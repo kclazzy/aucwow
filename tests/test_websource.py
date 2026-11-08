@@ -185,3 +185,42 @@ class HeaderTest(unittest.TestCase):
                         sleep=lambda s: None).check(1)
         for k, v in seen[0].header_items():
             f"{k}: {v}".encode("latin-1")
+
+
+class LooseHeaderTest(unittest.TestCase):
+    ROW = '<tr><td><a href="/forever/item/2320">Coarse Thread</a></td><td>12</td><td>2310</td></tr>'
+
+    def test_header_in_second_row(self):
+        html = ('<table><tr><td colspan="3">Prices — EU Alliance</td></tr>'
+                '<tr><th>Item</th><th>Price</th><th>Available</th></tr>' + self.ROW + self.ROW.replace("2320", "2589") + '</table>')
+        rows = websource.parse_html(html)
+        self.assertEqual([(r["item_id"], r["min"], r["qty"]) for r in rows], [(2320, 12, 2310), (2589, 12, 2310)])
+
+    def test_header_in_separate_table(self):
+        html = ('<table><thead><tr><th>Item</th><th>Price</th><th>Listed</th></tr></thead></table>'
+                '<table>' + self.ROW + '</table>')
+        self.assertEqual(websource.parse_html(html)[0]["qty"], 2310)
+
+    def test_more_header_synonyms(self):
+        for price, qty in (("Min Buyout", "Qty"), ("Floor", "Supply"), ("Cost", "Units"), ("Цена", "Предложение")):
+            html = f'<table><tr><th>Item</th><th>{price}</th><th>{qty}</th></tr>{self.ROW}</table>'
+            self.assertEqual(websource.parse_html(html)[0]["item_id"], 2320, (price, qty))
+
+    def test_error_lists_headers_and_link_context(self):
+        html = ('<html><table><tr><th>Foo</th><th>Bar</th></tr><tr><td><a href="/forever/item/7">Thing</a></td><td>1</td></tr></table></html>')
+        with self.assertRaises(WebSourceError) as cm:
+            websource.parse_html(html)
+        msg = str(cm.exception)
+        self.assertIn("Foo | Bar", msg)
+        self.assertIn("/forever/item/7", msg)
+
+    def test_failed_page_is_saved_for_analysis(self):
+        with tempfile.TemporaryDirectory() as d:
+            c = websource.WebClient({"web_source_file": str(Path(d, "p.html")), "debug_dir": d})
+            Path(d, "p.html").write_text("<html>no table</html>", encoding="utf-8")
+            with self.assertRaises(WebSourceError) as cm:
+                c.load()
+            saved = Path(d, "last_page.html")
+            self.assertTrue(saved.exists())
+            self.assertIn("no table", saved.read_text(encoding="utf-8"))
+            self.assertIn("last_page.html", str(cm.exception))
