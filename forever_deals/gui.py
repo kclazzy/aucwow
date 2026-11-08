@@ -623,6 +623,19 @@ class SettingsDialog(tk.Toplevel):
             r += 2
         for key, label, hint in self.API:
             row(key, label, hint, str(app.cfg.get(key, "")), key == "client_secret")
+        ttk.Label(f, text="Источник без API Blizzard", font=("Segoe UI", 10, "bold")).grid(row=r, column=0, sticky="w", pady=(10, 0))
+        r += 1
+        self.web = tk.BooleanVar(value=app.cfg.get("source") == "web")
+        ttk.Checkbutton(f, text="Брать цены с веб-страницы вместо API (ключи Blizzard не нужны)", variable=self.web).grid(
+            row=r, column=0, columnspan=2, sticky="w")
+        r += 1
+        row("web_source_url", "Ссылка на страницу с ценами", "таблица с колонками: предмет, мин./рыночная цена, количество, вендор; "
+            "проверьте, что сайт разрешает автоматическую загрузку", str(app.cfg.get("web_source_url", "")))
+        row("web_source_file", "…или файл сохранённой страницы", "Ctrl+S в браузере после «Show more»; файл важнее ссылки",
+            str(app.cfg.get("web_source_file", "")))
+        ttk.Button(f, text="Выбрать файл…", command=self.pick_page).grid(row=r, column=1, sticky="w")
+        r += 1
+        row("web_price_unit", "Единица цены в таблице", "copper — числа в меди (по умолчанию); gold — числа в золоте", str(app.cfg.get("web_price_unit", "copper")))
         ttk.Label(f, text="Расчёт", font=("Segoe UI", 10, "bold")).grid(row=r, column=0, sticky="w", pady=(10, 0))
         r += 1
         for key, label, hint in self.PCT:
@@ -680,6 +693,12 @@ class SettingsDialog(tk.Toplevel):
         c = self._client()
         self.app.bg(c.check, lambda r: self.say(f"Ошибка: {r}") if isinstance(r, Exception)
                     else self.say("\n".join(("✅ " if ok else "❌ ") + m for ok, m in r)))
+
+    def pick_page(self):
+        p = filedialog.askopenfilename(parent=self, title="Сохранённая страница с ценами",
+                                       filetypes=[("Веб-страница", "*.html *.htm"), ("Все файлы", "*.*")])
+        if p:
+            self.vars["web_source_file"].set(p)
 
     def test_alert(self):
         cfg = {k: self.vars[k].get().strip() for k, *_ in self.ALERT}
@@ -747,6 +766,11 @@ class SettingsDialog(tk.Toplevel):
             cfg[k] = self.vars[k].get().strip()
         cfg["alert_digest"], cfg["hourly_check"] = self.digest.get(), self.hourly.get()
         cfg["wowhead_check"] = self.wh.get()
+        cfg["source"] = "web" if self.web.get() else "blizzard"
+        for k in ("web_source_url", "web_source_file", "web_price_unit"):
+            cfg[k] = self.vars[k].get().strip()
+        if cfg["web_price_unit"] not in ("copper", "gold"):
+            cfg["web_price_unit"] = "copper"
         cfg["demo"] = self.demo.get()
         appdata.save_cfg(self.app.h, cfg)
         self.app.base = cfg.get("wowhead_base")

@@ -20,7 +20,7 @@ DEFAULT_CFG = {
     "retry_minutes": 30, "keep_reports": 30, "realm_limit": 200,
     "house_cuts": {}, "github_token": "",
     "discord_webhook": "", "telegram_token": "", "telegram_chat_id": "",
-    "hourly_check": False, "wowhead_check": True, "update_check": True, "wowhead_budget": 40, "compare_houses": [], "house_name": "Основной", "drop_pct": 0.7, "alert_digest": True,
+    "hourly_check": False, "source": "blizzard", "web_source_url": "", "web_source_file": "", "web_price_unit": "copper", "wowhead_check": True, "update_check": True, "wowhead_budget": 40, "compare_houses": [], "house_name": "Основной", "drop_pct": 0.7, "alert_digest": True,
 }
 
 
@@ -165,5 +165,7 @@ def prune_reports(h: Path, keep: int = 30):
 
 
 def configured(cfg: dict) -> bool:
+    if cfg.get("source") == "web":
+        return bool(str(cfg.get("web_source_url", "")).strip() or str(cfg.get("web_source_file", "")).strip())
     need = ("client_id", "client_secret", "dynamic_namespace", "static_namespace", "connected_realm_id", "auction_house_id")
     return all(str(cfg.get(k, "")).strip() for k in need)
