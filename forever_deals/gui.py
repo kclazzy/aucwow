@@ -15,8 +15,8 @@ from tkinter import filedialog, messagebox, ttk
 
 from pathlib import Path
 
-from . import (alerts, analytics, appdata, charts, crafting, demo, exporters, lua, report, runner, theme, trades_import,
-               updater, vendors, viewmodel as vm)
+from . import (alerts, analytics, appdata, charts, crafting, demo, exporters, lua, report, runner, selfupdate, theme,
+               trades_import, updater, vendors, viewmodel as vm)
 from .blizzard import ApiError, Client
 from .core import Settings, fmt_money, parse_money
 from .links import item_url, npc_url
@@ -52,6 +52,8 @@ class App(tk.Tk):
         self._build()
         self.after(300, self._poll)
         self.after(5000, self._tick)
+        if cfg.get("update_check", True) and not cfg.get("demo"):
+            self.after(4000, self.auto_check_update)
         if not appdata.configured(cfg) and not cfg.get("demo"):
             self.after(400, lambda: WizardDialog(self))
 
@@ -489,14 +491,23 @@ class App(tk.Tk):
     # ---------- обновление с GitHub ----------
     APP_DIR = Path(__file__).resolve().parent.parent
 
-    def update_app(self):
-        if not updater.supported():
-            messagebox.showinfo("Обновление", "Это собранный exe: код обновить нельзя. Скачайте новую версию "
-                                "с github.com/kclazzy/aucwow или запускайте приложение из исходников (python app.py).")
-            return
+    def _check_job(self):
         token = self.cfg.get("github_token", "")
+        if selfupdate.frozen():
+            return selfupdate.check(selfupdate.current_version(), token=token)
+        return updater.check(self.APP_DIR, token=token)
+
+    def update_app(self):
         self.status.config(text="Проверяю обновления на GitHub…")
-        self.bg(lambda: updater.check(self.APP_DIR, token=token), self._on_checked)
+        self.bg(self._check_job, self._on_checked)
+
+    def auto_check_update(self):
+        """Тихая проверка при запуске: только подсказка в строке состояния, без окон."""
+        def done(r):
+            if not isinstance(r, Exception) and r[0] and not self.running:
+                self.status.config(foreground=theme.P["warn"],
+                                   text=f"Доступна новая версия {r[2][:7]}: нажмите «Обновить приложение».")
+        self.bg(self._check_job, done)
 
     def _on_checked(self, r):
         if isinstance(r, Exception):
@@ -508,11 +519,29 @@ class App(tk.Tk):
             return messagebox.showinfo("Обновление", f"Установлена последняя версия ({local[:7]}).")
         old = "неизвестна" if local == updater.UNKNOWN else local[:7]
         if not messagebox.askyesno("Обновление", f"Доступна новая версия {remote[:7]} (у вас: {old}).\nОбновить сейчас? "
-                                   "Настройки, вендоры, история и отчёты не затрагиваются."):
+                                   "Настройки, вендоры, история и отчёты не затрагиваются."
+                                   + ("\nПриложение закроется и запустится заново само." if selfupdate.frozen() else "")):
             return self.status.config(text="Обновление отложено.")
         self.status.config(text="Скачиваю обновление…")
         token = self.cfg.get("github_token", "")
-        self.bg(lambda: updater.update(self.APP_DIR, token=token), self._on_updated)
+        if selfupdate.frozen():
+            folder = Path(sys.executable).parent
+            self.bg(lambda: selfupdate.stage(selfupdate.download(token=token), folder), self._on_staged)
+        else:
+            self.bg(lambda: updater.update(self.APP_DIR, token=token), self._on_updated)
+
+    def _on_staged(self, r):
+        if isinstance(r, Exception):
+            hint = " Папка с программой, возможно, защищена от записи: перенесите её, например, в Документы." \
+                if isinstance(r, OSError) else ""
+            self.status.config(text=f"Обновление не удалось: {r}")
+            return messagebox.showerror("Обновление", f"{r}.{hint}")
+        try:
+            selfupdate.launch_swap(r)
+        except OSError as exc:
+            self.status.config(text=f"Обновление не удалось: {exc}")
+            return messagebox.showerror("Обновление", f"Не удалось запустить замену файла: {exc}")
+        self.destroy()          # скрипт дождётся выхода, подменит exe и запустит новую версию
 
     def _on_updated(self, r):
         if isinstance(r, Exception):
