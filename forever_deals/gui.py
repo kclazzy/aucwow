@@ -15,7 +15,8 @@ from tkinter import filedialog, messagebox, ttk
 
 from pathlib import Path
 
-from . import analytics, appdata, charts, report, runner, theme, updater, vendors, viewmodel as vm
+from . import (alerts, analytics, appdata, charts, crafting, demo, exporters, lua, report, runner, theme, trades_import,
+               updater, vendors, viewmodel as vm)
 from .blizzard import ApiError, Client
 from .core import Settings, fmt_money, parse_money
 from .links import item_url, npc_url
@@ -37,7 +38,7 @@ class App(tk.Tk):
         super().__init__()
         self.h, self.cfg = home, cfg
         self.title("WoW Forever — выгодные товары")
-        self.geometry("1320x860")
+        self.geometry("1400x860")
         theme.apply(self)
         self.q = queue.Queue()
         self.running = False
@@ -46,6 +47,7 @@ class App(tk.Tk):
         self.last_md, self.last_path = "", None
         self.auto = False
         self.sort_state = {}
+        self.sel_item = None
         self.base = cfg.get("wowhead_base")
         self._build()
         self.after(300, self._poll)
@@ -65,6 +67,7 @@ class App(tk.Tk):
         self.run_btn = ttk.Button(btns, text="▶  Выполнить сейчас", style="Accent.TButton", command=self.run_now)
         self.run_btn.pack(side="left", padx=(0, 8))
         ttk.Button(btns, text="Вендоры…", command=self.open_vendors).pack(side="left", padx=4)
+        ttk.Button(btns, text="Рецепты…", command=self.open_recipes).pack(side="left", padx=4)
         ttk.Button(btns, text="Сделки…", command=self.open_journal).pack(side="left", padx=4)
         ttk.Button(btns, text="Настройки…", command=self.open_settings).pack(side="left", padx=4)
         ttk.Button(btns, text="Папка отчётов", command=lambda: self._open_path(self.h / "reports")).pack(side="left", padx=4)
@@ -92,7 +95,7 @@ class App(tk.Tk):
         self.nb.pack(fill="both", expand=True, padx=14, pady=(6, 6))
         self.dash = ttk.Frame(self.nb)
         self.nb.add(self.dash, text="Аналитика")
-        self.dash_nb = ttk.Notebook(self.dash)
+        self.dash_nb = ttk.Notebook(self.dash, style="Dash.TNotebook")
         self.dash_nb.pack(fill="both", expand=True)
         self.dash_hint = ttk.Label(self.dash, text="Выполните поиск: здесь появятся общий дашборд и вкладки по профессиям.",
                                    padding=20)
@@ -114,7 +117,9 @@ class App(tk.Tk):
         bar.pack(fill="x")
         ttk.Button(bar, text="Предмет на Wowhead", command=lambda: self._open_selected("item")).pack(side="left", padx=4)
         ttk.Button(bar, text="Вендор на Wowhead", command=lambda: self._open_selected("npc")).pack(side="left", padx=4)
+        ttk.Button(bar, text="График цены", command=self.price_chart).pack(side="left", padx=4)
         ttk.Button(bar, text="Скопировать список закупки", command=self.copy_route).pack(side="left", padx=4)
+        ttk.Button(bar, text="Строка поиска (TSM)", command=self.copy_tsm).pack(side="left", padx=4)
         ttk.Button(bar, text="Открыть отчёт в браузере", command=self.open_html).pack(side="left", padx=4)
         ttk.Button(bar, text="Сохранить отчёт как…", command=self.save_report).pack(side="left", padx=4)
         self._refresh_sched()
@@ -131,6 +136,7 @@ class App(tk.Tk):
         if title == "Маршрут закупки":
             tv.column("#0", width=0, stretch=False)
         theme.tag_tree(tv)
+        tv.bind("<<TreeviewSelect>>", lambda e, tv=tv: self._remember(tv))
         sb = ttk.Scrollbar(f, command=tv.yview)
         tv.configure(yscrollcommand=sb.set)
         tv.pack(side="left", fill="both", expand=True)
@@ -155,7 +161,7 @@ class App(tk.Tk):
         mode = "  ·  ДЕМО-РЕЖИМ" if self.cfg.get("demo") else ""
         self.sched.config(text=f"Ежедневно · Вечером ({self.cfg['run_time']})  ·  Последний запуск: {last}{mode}")
 
-    def run_now(self, auto=False):
+    def run_now(self, auto=False, digest=False, mark=True):
         if self.running:
             return
         self.auto = auto
@@ -165,7 +171,7 @@ class App(tk.Tk):
 
         def work():
             try:
-                self.q.put(("done", runner.run_search(self.h, self.cfg, lambda m: self.q.put(("progress", m)))))
+                self.q.put(("done", runner.run_search(self.h, self.cfg, lambda m: self.q.put(("progress", m)), digest=digest, mark=mark)))
             except Exception as exc:       # показываем причину в окне, а не роняем приложение
                 self.q.put(("error", exc))
         threading.Thread(target=work, daemon=True).start()
@@ -192,8 +198,13 @@ class App(tk.Tk):
         self.after(300, self._poll)
 
     def _tick(self):
-        if not self.running and not self.cfg.get("demo") and appdata.configured(self.cfg) and appdata.is_due(self.cfg, self.h, datetime.now()):
-            self.run_now(auto=True)
+        if not self.running and not self.cfg.get("demo") and appdata.configured(self.cfg):
+            now = datetime.now()
+            if appdata.is_due(self.cfg, self.h, now):
+                self.run_now(auto=True, digest=True)
+            elif appdata.is_check_due(self.cfg, self.h, now):      # ежечасная проверка: только оповещения, день не отмечается
+                appdata.mark_check(self.h, now)
+                self.run_now(auto=True, digest=False, mark=False)
         self.after(30000, self._tick)
 
     def _show(self, res, md, path, items):
@@ -251,6 +262,7 @@ class App(tk.Tk):
         total = analytics.overall(res)
         profs = analytics.by_profession(res)
         self._dash_general(total, profs, analytics.reason_histogram(res))
+        self._dash_extra()
         for sm in profs:
             self._dash_profession(sm)
 
@@ -258,7 +270,7 @@ class App(tk.Tk):
         """Страница вкладки с прокруткой."""
         page = ttk.Frame(self.dash_nb)
         self.dash_nb.add(page, text=title)
-        cv = tk.Canvas(page, highlightthickness=0)
+        cv = tk.Canvas(page, highlightthickness=0, bg=theme.P["bg"])
         sb = ttk.Scrollbar(page, command=cv.yview)
         inner = ttk.Frame(cv)
         win = cv.create_window((0, 0), window=inner, anchor="nw")
@@ -316,6 +328,56 @@ class App(tk.Tk):
         tv.bind("<Double-1>", lambda e, tv=tv: self._open_from(tv))
         tv.pack(fill="x", padx=8, pady=6)
 
+    def _dash_table(self, title, cols, widths, rows, hint, chart=None, chart_title=""):
+        page = self._scrolled(title)
+        if chart is not None:
+            charts.BarChart(page, chart_title, chart, "Нет данных для диаграммы").pack(fill="x", padx=8, pady=6)
+        if not rows or chart is not None:
+            ttk.Label(page, text=hint, style="Muted.TLabel", wraplength=1150, padding=(8, 0)).pack(anchor="w")
+        keys = [f"c{i}" for i in range(len(cols))]
+        tv = ttk.Treeview(page, columns=keys, show="headings", height=min(14, max(3, len(rows))), selectmode="browse")
+        for k, hd, w in zip(keys, cols, widths):
+            tv.heading(k, text=hd)
+            tv.column(k, width=w, anchor="w")
+        theme.tag_tree(tv)
+        for n, (ids, vals) in enumerate(rows):
+            self.rows[tv.insert("", "end", values=vals, tags=("odd" if n % 2 else "even",))] = ids
+        tv.bind("<Double-1>", lambda e, tv=tv: self._open_from(tv))
+        tv.bind("<<TreeviewSelect>>", lambda e, tv=tv: self._remember(tv))
+        tv.pack(fill="x", padx=8, pady=6)
+        return tv
+
+    def _remember(self, tv):
+        sel = tv.selection()
+        if sel and sel[0] in self.rows:
+            self.sel_item = self.rows[sel[0]][0]
+
+    def _dash_extra(self):
+        res, money = self.res, (lambda v: fmt_money(round(v)))
+        short = analytics.shortage_rows(res)
+        self._dash_table("Дефицит", vm.SHORT_COLS, vm.SHORT_WIDTHS, vm.shortage_table(res),
+                         "Мало запаса на аукционе при хорошем спросе: товар скоро закончится, цена может вырасти. "
+                         "Запас в днях = штук на аукционе ÷ продаж в день.",
+                         [(e.cand.name, e.stock_days, f"{e.stock_days:.1f} дн.") for e in short[:8] if e.stock_days is not None],
+                         "Меньше всего запаса, дней")
+        resets = analytics.reset_rows(res, self.settings())
+        self._dash_table("Сброс", vm.RESET_COLS, vm.RESET_WIDTHS, vm.reset_table(res, self.settings()),
+                         "Выкупить все дешёвые лоты и выставить заново по обычной цене. Считается только то, что окупается "
+                         "после комиссии и укладывается в бюджет на позицию.",
+                         [(r["name"], r["profit"], money(r["profit"])) for r in resets[:8]], "Прибыль со сброса")
+        self._dash_table("Крафт", vm.CRAFT_COLS, vm.CRAFT_WIDTHS, vm.craft_table(res),
+                         "Нет рецептов. Нажмите «Рецепты…» и вставьте строки вида: ID изделия;кол-во;ID реагента:кол-во,…;профессия;название. "
+                         "(в API Blizzard рецептов нет — список ведёте вы).")
+        self._dash_table("Дизенчант", vm.DE_COLS, vm.DE_WIDTHS, vm.de_table(res),
+                         f"Нет данных. Положите файл disenchant.json в папку {self.h} (образец: disenchant_template.json в репозитории). "
+                         "Шансы выпадения в API нет — берите из таблицы, которой доверяете.")
+        self._dash_table("Аукционы", vm.ARB_COLS, vm.ARB_WIDTHS, vm.arb_table(res),
+                         "Сравнение нескольких аукционов не настроено. В «Настройках» укажите соседний аукцион (ID:название:комиссия%) "
+                         "— здесь появятся товары, которые выгодно купить на одном и продать на другом.")
+
+    def settings(self):
+        return appdata.load_settings(self.cfg)
+
     def _open_from(self, tv):
         sel = tv.selection()
         if sel and sel[0] in self.rows and not self.cfg.get("demo"):
@@ -361,6 +423,25 @@ class App(tk.Tk):
             webbrowser.open(npc_url(npc_id, self.base))
         else:
             webbrowser.open(item_url(item_id, self.base))
+
+    def copy_tsm(self):
+        if self.res is None:
+            messagebox.showinfo("Закупка", "Сначала выполните поиск.")
+            return
+        names = exporters.route_names(report.shopping_route(self.res, self.items))
+        self.clipboard_clear()
+        self.clipboard_append(exporters.tsm_search_string(names))
+        self.status.config(text=f"Строка поиска скопирована ({len(names)} товаров): вставьте её в поиск аукциона "
+                                "(TSM, Hammerprice). Синтаксис не проверен на Forever.")
+
+    def price_chart(self):
+        if self.res is None or self.sel_item is None:
+            messagebox.showinfo("График цены", "Выполните поиск и выберите строку с товаром.")
+            return
+        PriceChartDialog(self, self.sel_item)
+
+    def open_recipes(self):
+        RecipesDialog(self)
 
     def copy_route(self):
         if self.res is None:
@@ -471,6 +552,9 @@ class SettingsDialog(tk.Toplevel):
            ("deposit_pct", "Депозит, % от цены вендору за 12 ч", "возвращается при продаже; тут учитывается только потеря при непродаже"),
            ("p_sell", "Вероятность продать лот, %", "доля лотов, которые продаются за срок"),
            ("share", "Ваша доля рынка, %", "какую часть продаж вы реально заберёте")]
+    ALERT = [("discord_webhook", "Discord webhook", "адрес вебхука канала; пусто — не отправлять"),
+             ("telegram_token", "Telegram: токен бота", "от @BotFather; вместе с ID чата"),
+             ("telegram_chat_id", "Telegram: ID чата", "число, куда писать боту")]
     NUM = [("min_rate", "Мин. продаж в день, шт", "реже — рынок считается тонким"),
            ("min_markup", "Мин. наценка вендорных, ×", "10 = продажа минимум в 10 раз дороже закупки"),
            ("min_net", "Мин. прибыль с шт., в меди", "100 меди = 1 серебро"),
@@ -516,6 +600,21 @@ class SettingsDialog(tk.Toplevel):
             row("s_" + key, label, hint, vm.to_percent(getattr(s, key)))
         for key, label, hint in self.NUM:
             row("s_" + key, label, hint, str(getattr(s, key)))
+        row("s_undercut", "Сбить цену на, в меди", "рекомендуемая цена выставления = минимальная на аукционе минус это", str(s.undercut))
+        ttk.Label(f, text="Аукционы и оповещения", font=("Segoe UI", 10, "bold")).grid(row=r, column=0, sticky="w", pady=(10, 0))
+        r += 1
+        row("house_name", "Название этого аукциона", "для таблицы «Аукционы»", str(app.cfg.get("house_name", "Основной")))
+        row("houses_text", "Другие аукционы для сравнения", "ID:название:комиссия%, через запятую; например 2:Blackwater:15",
+            ", ".join(f"{h['id']}:{h['name']}:{round(h['cut'] * 100, 2):g}" for h in app.cfg.get("compare_houses", [])))
+        for key, label, hint in self.ALERT:
+            row(key, label, hint, str(app.cfg.get(key, "")), key == "telegram_token")
+        row("drop_pct", "Оповещать о падении цены, %", "когда цена ниже обычной на столько процентов", vm.to_percent(app.cfg.get("drop_pct", 0.7)))
+        self.digest = tk.BooleanVar(value=bool(app.cfg.get("alert_digest", True)))
+        self.hourly = tk.BooleanVar(value=bool(app.cfg.get("hourly_check", False)))
+        ttk.Checkbutton(f, text="Присылать вечерний дайджест топ-3", variable=self.digest).grid(row=r, column=0, columnspan=2, sticky="w")
+        ttk.Checkbutton(f, text="Проверять цены раз в час (только оповещения, окно открыто)", variable=self.hourly).grid(
+            row=r + 1, column=0, columnspan=2, sticky="w")
+        r += 2
         self.demo = tk.BooleanVar(value=bool(app.cfg.get("demo")))
         ttk.Checkbutton(f, text="Демо-режим (вымышленные данные, без ключей)", variable=self.demo).grid(row=r, column=0, columnspan=2, sticky="w", pady=6)
         r += 1
@@ -525,6 +624,7 @@ class SettingsDialog(tk.Toplevel):
         ttk.Button(helper, text="Реалмы…", command=self.find_realms).pack(side="left", padx=2)
         ttk.Button(helper, text="Аукционы реалма…", command=self.find_houses).pack(side="left", padx=2)
         ttk.Button(helper, text="Проверить подключение", command=self.check).pack(side="left", padx=2)
+        ttk.Button(helper, text="Проверить оповещение", command=self.test_alert).pack(side="left", padx=2)
         r += 1
         self.info = tk.Text(f, height=6, wrap="word", state="disabled", relief="flat", bg=theme.P["card"], fg=theme.P["text"], padx=8, pady=6)
         self.info.grid(row=r, column=0, columnspan=2, sticky="nsew", pady=6)
@@ -547,6 +647,15 @@ class SettingsDialog(tk.Toplevel):
         c = self._client()
         self.app.bg(c.check, lambda r: self.say(f"Ошибка: {r}") if isinstance(r, Exception)
                     else self.say("\n".join(("✅ " if ok else "❌ ") + m for ok, m in r)))
+
+    def test_alert(self):
+        cfg = {k: self.vars[k].get().strip() for k, *_ in self.ALERT}
+        if not any(cfg.values()):
+            return self.say("Укажите Discord webhook или Telegram токен и ID чата.")
+        self.say("Отправляю тестовое сообщение…")
+        self.app.bg(lambda: alerts.send(cfg, "✅ Проверка оповещений WoW Forever: всё работает."),
+                    lambda r: self.say(f"Ошибка отправки: {r}") if isinstance(r, Exception)
+                    else self.say("Отправлено: " + ", ".join(r) if r else "Не настроен ни один канал."))
 
     def find_ns(self):
         self.say("Проверяю варианты неймспейса…")
@@ -587,17 +696,107 @@ class SettingsDialog(tk.Toplevel):
                 kw[k] = vm.from_percent(self.vars["s_" + k].get())
             for k, *_ in self.NUM:
                 kw[k] = type(getattr(base, k))(self.vars["s_" + k].get().replace(",", "."))
+            kw["undercut"] = int(self.vars["s_undercut"].get())
+            houses, errs = appdata.parse_houses(self.vars["houses_text"].get())
+            if errs:
+                raise ValueError("; ".join(errs))
+            drop = vm.from_percent(self.vars["drop_pct"].get())
             cut = kw.pop("cut")
             appdata.settings_to_cfg(cfg, Settings(**{**base.__dict__, **kw}))
             appdata.set_house_cut(cfg, cut)
-        except (ValueError, AssertionError):
-            messagebox.showerror("Настройки", "Проверьте числа (проценты 0–100) и время запуска (ЧЧ:ММ).", parent=self)
+        except (ValueError, AssertionError) as exc:
+            messagebox.showerror("Настройки", "Проверьте числа (проценты 0–100) и время запуска (ЧЧ:ММ)."
+                                 + (f"\n{exc}" if str(exc) else ""), parent=self)
             return
+        cfg["compare_houses"], cfg["drop_pct"] = houses, drop
+        cfg["house_name"] = self.vars["house_name"].get().strip() or "Основной"
+        for k, *_ in self.ALERT:
+            cfg[k] = self.vars[k].get().strip()
+        cfg["alert_digest"], cfg["hourly_check"] = self.digest.get(), self.hourly.get()
         cfg["demo"] = self.demo.get()
         appdata.save_cfg(self.app.h, cfg)
         self.app.base = cfg.get("wowhead_base")
         self.app._refresh_sched()
         self.destroy()
+
+
+class PriceChartDialog(tk.Toplevel):
+    """История цены предмета по дням: минимальная и средняя рыночная."""
+    DAYS = 14
+
+    def __init__(self, app: App, item_id: int):
+        super().__init__(app, bg=theme.P["bg"])
+        known = {e.cand.item_id: e.cand.name for e in app.res.ranked + app.res.rejected}
+        name = known.get(item_id) or (app.res.names or {}).get(item_id) or f"#{item_id}"
+        self.title(f"График цены — {name}")
+        self.geometry("760x420")
+        if app.cfg.get("demo"):
+            store = Store(":memory:")
+            demo.seed_history(store, int(time.time()) - 600)
+        else:
+            store = Store(app.h / "history.sqlite")
+        rows = store.price_history(item_id, int(time.time()) - self.DAYS * 86400)
+        ttk.Label(self, text=name, font=("Segoe UI", 12, "bold"), padding=(12, 10, 12, 0)).pack(anchor="w")
+        series = [("Минимальная цена", theme.P["accent"], [r[1] for r in rows]),
+                  ("Средняя рыночная", theme.P["warn"], [r[2] for r in rows])]
+        ch = charts.LineChart(self, series, "Истории пока нет: она копится по одному снимку за запуск. Запускайте поиск каждый день.")
+        ch.labels = [datetime.fromtimestamp(r[0]).strftime("%d.%m") for r in rows]
+        ch.pack(fill="both", expand=True, padx=12, pady=8)
+        last = rows[-1] if rows else None
+        legend = "Синяя линия — минимальная цена за сутки, жёлтая — средняя рыночная."
+        if last:
+            legend += f" Сейчас: {fmt_money(last[1])} (мин.), {fmt_money(last[2])} (рынок). Дней в истории: {len(rows)}."
+        ttk.Label(self, text=legend, style="Muted.TLabel", wraplength=720, padding=(12, 0, 12, 10)).pack(anchor="w")
+
+
+class RecipesDialog(tk.Toplevel):
+    """Рецепты для расчёта крафта. API Blizzard их не отдаёт, поэтому список ведёт пользователь."""
+    HELP = ("Формат строки: ID изделия;кол-во;ID реагента:кол-во,ID реагента:кол-во;профессия;название\n"
+            "Пример: 900012;1;900006:2;Кузнечное дело;Медный слиток")
+
+    def __init__(self, app: App):
+        super().__init__(app, bg=theme.P["bg"])
+        self.app = app
+        self.title("Рецепты для крафта")
+        self.geometry("760x460")
+        self.path = app.h / "recipes.json"
+        ttk.Label(self, text=self.HELP, style="Muted.TLabel", wraplength=720, padding=10).pack(anchor="w")
+        self.text = tk.Text(self, height=14, wrap="none")
+        self.text.pack(fill="both", expand=True, padx=10)
+        self.info = ttk.Label(self, text="", padding=10, wraplength=720)
+        self.info.pack(anchor="w")
+        bar = ttk.Frame(self, padding=10)
+        bar.pack(fill="x")
+        ttk.Button(bar, text="Добавить из текста", style="Accent.TButton", command=self.add).pack(side="left")
+        ttk.Button(bar, text="Очистить все рецепты", command=self.clear).pack(side="left", padx=8)
+        self._count()
+
+    def _count(self):
+        try:
+            n = len(crafting.load(self.path))
+        except (ValueError, KeyError, TypeError):
+            n = 0
+        self.info.config(text=f"Сохранено рецептов: {n}. Они учитываются при следующем запуске поиска.")
+
+    def add(self):
+        new, errors = crafting.parse_text(self.text.get("1.0", "end"))
+        if errors:
+            self.info.config(text="Ошибки: " + "; ".join(errors[:4]), foreground=theme.P["bad"])
+            return
+        try:
+            cur = crafting.load(self.path)
+        except (ValueError, KeyError, TypeError):
+            cur = {}
+        cur.update(new)
+        crafting.save(self.path, cur)
+        self.text.delete("1.0", "end")
+        self.info.config(foreground=theme.P["text"])
+        self._count()
+
+    def clear(self):
+        if messagebox.askyesno("Рецепты", "Удалить все сохранённые рецепты?", parent=self):
+            crafting.save(self.path, {})
+            self._count()
 
 
 class VendorsDialog(tk.Toplevel):
@@ -744,6 +943,7 @@ class JournalDialog(tk.Toplevel):
         ttk.Radiobutton(form, text="Купил", variable=self.kind, value="buy").grid(row=1, column=3, padx=6)
         ttk.Radiobutton(form, text="Продал", variable=self.kind, value="sell").grid(row=1, column=4, padx=6)
         ttk.Button(form, text="Записать", command=self.add).grid(row=1, column=5, padx=8)
+        ttk.Button(form, text="Импорт из аддона…", command=self.import_addon).grid(row=1, column=6, padx=8)
         ttk.Label(self, style="Muted.TLabel", wraplength=820, padding=8, text=(
             "Прибыль считается по средней цене покупки и комиссии аукциона из настроек. "
             "Записи нужны, чтобы сверить прогноз приложения с реальностью.")).pack(fill="x")
@@ -757,6 +957,27 @@ class JournalDialog(tk.Toplevel):
         for r in self.store.trade_summary(self.cut):
             self.tv.insert("", "end", values=(r["item_id"], names.get(r["item_id"]) or (self.store.get_item(r["item_id"]) or {}).get("name", "?"),
                                               r["bought"], r["sold"], r["left"], fmt_money(r["spent"]), fmt_money(r["revenue"]), fmt_money(r["realized"])))
+
+    def import_addon(self):
+        path = filedialog.askopenfilename(parent=self, title="Файл SavedVariables аддона (.lua)",
+                                          filetypes=[("Lua", "*.lua"), ("Все файлы", "*.*")])
+        if not path:
+            return
+        try:
+            tree = lua.parse(Path(path).read_text(encoding="utf-8", errors="replace"))
+            trades, skipped = trades_import.extract(tree)
+        except (ValueError, OSError) as exc:
+            messagebox.showerror("Импорт", f"Не удалось прочитать файл: {exc}", parent=self)
+            return
+        if not trades:
+            messagebox.showinfo("Импорт", "Сделок в файле не найдено. Формат аддона может отличаться от ожидаемого.", parent=self)
+            return
+        extra = f" Пропущено записей с неизвестным видом: {skipped}." if skipped else ""
+        if messagebox.askyesno("Импорт", f"Найдено сделок: {len(trades)}.{extra}\nИмпорт эвристический — поля угадываются по названиям, "
+                                         "проверьте итог в таблице. Добавить?", parent=self):
+            added = self.store.add_trades(trades)
+            self.refresh()
+            messagebox.showinfo("Импорт", f"Добавлено: {added}. Повторы пропущены.", parent=self)
 
     def add(self):
         try:
