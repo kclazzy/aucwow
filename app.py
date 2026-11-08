@@ -14,6 +14,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--run-once", action="store_true")
     ap.add_argument("--demo", action="store_true")
+    ap.add_argument("--open", action="store_true", help="после --run-once открыть HTML-отчёт в браузере")
     a = ap.parse_args()
     h = appdata.home()
     cfg = appdata.load_cfg(h)
@@ -26,6 +27,9 @@ def main():
             print("Ошибка:", exc, file=sys.stderr)
             return 1
         print("Отчёт:", path)
+        if a.open:
+            import webbrowser
+            webbrowser.open(path.with_suffix(".html").as_uri())
         return 0
     from forever_deals.gui import App
     App(h, cfg).mainloop()
