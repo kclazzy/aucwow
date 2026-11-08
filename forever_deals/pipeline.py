@@ -51,6 +51,7 @@ class Result:
     warnings: list = field(default_factory=list)
     listings: dict = field(default_factory=dict)     # item_id -> [(цена, шт.)] для сброса рынка
     sources: list = field(default_factory=list)
+    notified: dict = field(default_factory=dict)      # итог отправки оповещений
 
 
 def _lookup_items(client, store, ids, workers=8):

@@ -4,15 +4,19 @@ from __future__ import annotations
 import time
 from datetime import datetime
 
-from . import appdata, demo, pipeline, report, vendors
+from . import alerts, appdata, demo, pipeline, report, vendors
 from .blizzard import Client
 from .store import Store
 
 
-def run_search(h, cfg, progress=lambda m: None):
+def run_search(h, cfg, progress=lambda m: None, digest=False):
     """-> (result, markdown, report_path, vendor_items). При сбое записывает его в состояние (повтор через retry_minutes)."""
     try:
-        return _run(h, cfg, progress)
+        result = _run(h, cfg, progress)
+        if not cfg.get("demo"):
+            res = result[0]
+            res.notified = alerts.notify(h, cfg, res, appdata.load_settings(cfg), digest, today=datetime.now().date().isoformat())
+        return result
     except Exception as exc:
         if not cfg.get("demo"):
             appdata.mark_fail(h, datetime.now(), str(exc))

@@ -19,6 +19,8 @@ DEFAULT_CFG = {
     "wowhead_base": "https://www.wowhead.com/forever",
     "retry_minutes": 30, "keep_reports": 30, "realm_limit": 200,
     "house_cuts": {}, "github_token": "",
+    "discord_webhook": "", "telegram_token": "", "telegram_chat_id": "",
+    "hourly_check": False, "drop_pct": 0.7, "alert_digest": True,
 }
 
 
@@ -93,6 +95,29 @@ def mark_fail(h: Path, when: datetime, error: str):
     st = _state(h)
     st["failed_at"], st["error"] = when.isoformat(), error
     _save_state(h, st)
+
+
+def is_check_due(cfg: dict, h: Path, now: datetime) -> bool:
+    """Ежечасная проверка (Blizzard обновляет аукцион раз в час): включена и прошёл час с прошлой."""
+    if not cfg.get("hourly_check"):
+        return False
+    last = _state(h).get("last_check")
+    return not last or now - datetime.fromisoformat(last) >= timedelta(minutes=60)
+
+
+def mark_check(h: Path, when: datetime):
+    st = _state(h)
+    st["last_check"] = when.isoformat()
+    _save_state(h, st)
+
+
+def load_alert_state(h: Path) -> dict:
+    f = h / "alerts.json"
+    return json.loads(f.read_text(encoding="utf-8")) if f.exists() else {}
+
+
+def save_alert_state(h: Path, state: dict):
+    (h / "alerts.json").write_text(json.dumps(state), encoding="utf-8")
 
 
 def is_due(cfg: dict, h: Path, now: datetime) -> bool:
