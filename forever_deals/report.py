@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from . import analytics
+from . import analytics, theme
 from .core import Settings, fmt_money
 from .links import item_url, md_link, npc_url
 
@@ -234,8 +234,14 @@ def markdown_to_html(md: str, title: str = "Отчёт WoW Forever") -> str:
         elif ln.strip():
             out.append(f"<p>{inline(ln)}</p>")
         i += 1
-    css = ("body{font-family:Segoe UI,Arial,sans-serif;max-width:1200px;margin:24px auto;padding:0 16px;color:#222}"
-           "table{border-collapse:collapse;margin:8px 0;font-size:14px}th,td{border:1px solid #ccc;padding:4px 8px;text-align:left}"
-           "th{background:#f0f0f0}blockquote{background:#fff3cd;margin:8px 0;padding:8px 12px}a{color:#0b5ed7}")
+    P = theme.P
+    css = (f"body{{font-family:Segoe UI,Arial,sans-serif;max-width:1250px;margin:0 auto;padding:0 20px 40px;background:{P['bg']};color:{P['text']}}}"
+           f"h1{{background:{P['header_bg']};color:{P['header_fg']};margin:0 -20px 16px;padding:22px 20px;font-size:24px}}"
+           f"h2{{margin:28px 0 8px;padding-bottom:4px;border-bottom:2px solid {P['accent']};font-size:19px}}"
+           f"table{{border-collapse:collapse;margin:8px 0;font-size:14px;background:{P['card']};width:100%}}"
+           f"th,td{{border:1px solid {P['border']};padding:6px 10px;text-align:left}}"
+           f"th{{background:{P['header_bg']};color:{P['header_fg']}}}tr:nth-child(even) td{{background:{P['zebra']}}}"
+           f"blockquote{{background:#fff3cd;margin:8px 0;padding:10px 14px;border-left:4px solid #f59e0b}}"
+           f"a{{color:{P['accent']}}}li{{margin:3px 0}}")
     return (f"<!DOCTYPE html><html lang=\"ru\"><head><meta charset=\"utf-8\"><title>{_h.escape(title)}</title>"
             f"<style>{css}</style></head><body>" + "\n".join(out) + "</body></html>")

@@ -15,7 +15,7 @@ from tkinter import filedialog, messagebox, ttk
 
 from pathlib import Path
 
-from . import analytics, appdata, charts, report, runner, updater, vendors, viewmodel as vm
+from . import analytics, appdata, charts, report, runner, theme, updater, vendors, viewmodel as vm
 from .blizzard import ApiError, Client
 from .core import Settings, fmt_money, parse_money
 from .links import item_url, npc_url
@@ -37,7 +37,8 @@ class App(tk.Tk):
         super().__init__()
         self.h, self.cfg = home, cfg
         self.title("WoW Forever — выгодные товары")
-        self.geometry("1320x780")
+        self.geometry("1320x860")
+        theme.apply(self)
         self.q = queue.Queue()
         self.running = False
         self.rows = {}          # iid -> (item_id, npc_id)
@@ -54,16 +55,15 @@ class App(tk.Tk):
 
     # ---------- построение окна ----------
     def _build(self):
-        top = ttk.Frame(self, padding=12)
+        top = ttk.Frame(self, style="Header.TFrame", padding=(18, 14, 18, 12))
         top.pack(fill="x")
-        ttk.Label(top, text=TITLE, font=("Segoe UI", 16, "bold")).grid(row=0, column=0, sticky="w")
-        self.sched = ttk.Label(top, text="", foreground="#555")
-        self.sched.grid(row=1, column=0, sticky="w", pady=(2, 4))
-        btns = ttk.Frame(top)
-        btns.grid(row=2, column=0, sticky="w", pady=(0, 4))
-        top.columnconfigure(0, weight=1)
-        self.run_btn = ttk.Button(btns, text="Выполнить сейчас", command=self.run_now)
-        self.run_btn.pack(side="left", padx=4)
+        ttk.Label(top, text=TITLE, style="Title.TLabel").grid(row=0, column=0, sticky="w")
+        self.sched = ttk.Label(top, text="", style="Sub.TLabel")
+        self.sched.grid(row=1, column=0, sticky="w", pady=(2, 10))
+        btns = ttk.Frame(top, style="Header.TFrame")
+        btns.grid(row=2, column=0, sticky="w")
+        self.run_btn = ttk.Button(btns, text="▶  Выполнить сейчас", style="Accent.TButton", command=self.run_now)
+        self.run_btn.pack(side="left", padx=(0, 8))
         ttk.Button(btns, text="Вендоры…", command=self.open_vendors).pack(side="left", padx=4)
         ttk.Button(btns, text="Сделки…", command=self.open_journal).pack(side="left", padx=4)
         ttk.Button(btns, text="Настройки…", command=self.open_settings).pack(side="left", padx=4)
@@ -71,25 +71,25 @@ class App(tk.Tk):
         ttk.Button(btns, text="Обновить приложение", command=self.update_app).pack(side="left", padx=4)
 
         box = ttk.LabelFrame(self, text="Будут проверяться", padding=8)
-        box.pack(fill="x", padx=12)
+        box.pack(fill="x", padx=14, pady=(12, 0))
         for i, t in enumerate(CHECKS):
-            ttk.Label(box, text="• " + t).grid(row=i // 2, column=i % 2, sticky="w", padx=8)
+            ttk.Label(box, text="✓  " + t, style="Card.TLabel").grid(row=i // 2, column=i % 2, sticky="w", padx=8, pady=1)
         box.columnconfigure(0, weight=1)
         box.columnconfigure(1, weight=1)
 
-        self.status = ttk.Label(self, text="Готов.", padding=(12, 6), wraplength=1250, justify="left")
-        self.status.pack(fill="x")
-        fl = ttk.Frame(self, padding=(12, 0))
+        self.status = ttk.Label(self, text="Готов.", style="Status.TLabel", wraplength=1250, justify="left")
+        self.status.pack(fill="x", padx=14, pady=(10, 6))
+        fl = ttk.Frame(self, padding=(14, 0))
         fl.pack(fill="x")
         ttk.Label(fl, text="Поиск по таблицам:").pack(side="left")
         self.filter_var = tk.StringVar()
         self.filter_var.trace_add("write", lambda *a: self._render())
         ttk.Entry(fl, textvariable=self.filter_var, width=30).pack(side="left", padx=6)
         ttk.Label(fl, text="Клик по заголовку столбца — сортировка. Двойной клик по строке — предмет на Wowhead.",
-                  foreground="#666").pack(side="left", padx=10)
+                  style="Muted.TLabel").pack(side="left", padx=10)
 
         self.nb = ttk.Notebook(self)
-        self.nb.pack(fill="both", expand=True, padx=12, pady=(4, 6))
+        self.nb.pack(fill="both", expand=True, padx=14, pady=(6, 6))
         self.dash = ttk.Frame(self.nb)
         self.nb.add(self.dash, text="Аналитика")
         self.dash_nb = ttk.Notebook(self.dash)
@@ -105,12 +105,12 @@ class App(tk.Tk):
         self.text = tk.Text(rep, wrap="word", font=("Consolas", 10))
         sb = ttk.Scrollbar(rep, command=self.text.yview)
         self.text.configure(yscrollcommand=sb.set, state="disabled")
-        self.text.tag_configure("link", foreground="#0b5ed7", underline=True)
+        self.text.tag_configure("link", foreground=theme.P["accent"], underline=True)
         self.text.tag_configure("h", font=("Segoe UI", 12, "bold"))
         self.text.pack(side="left", fill="both", expand=True)
         sb.pack(side="right", fill="y")
 
-        bar = ttk.Frame(self, padding=(12, 0, 12, 10))
+        bar = ttk.Frame(self, padding=(14, 0, 14, 12))
         bar.pack(fill="x")
         ttk.Button(bar, text="Предмет на Wowhead", command=lambda: self._open_selected("item")).pack(side="left", padx=4)
         ttk.Button(bar, text="Вендор на Wowhead", command=lambda: self._open_selected("npc")).pack(side="left", padx=4)
@@ -130,6 +130,7 @@ class App(tk.Tk):
             tv.column(c, width=w, anchor="w")
         if title == "Маршрут закупки":
             tv.column("#0", width=0, stretch=False)
+        theme.tag_tree(tv)
         sb = ttk.Scrollbar(f, command=tv.yview)
         tv.configure(yscrollcommand=sb.set)
         tv.pack(side="left", fill="both", expand=True)
@@ -160,7 +161,7 @@ class App(tk.Tk):
         self.auto = auto
         self.running = True
         self.run_btn.state(["disabled"])
-        self.status.config(text="Запуск…")
+        self.status.config(text="Запуск…", foreground=theme.P["text"])
 
         def work():
             try:
@@ -180,7 +181,7 @@ class App(tk.Tk):
                 elif kind == "error":
                     self.running = False
                     self.run_btn.state(["!disabled"])
-                    self.status.config(text="Ошибка: " + str(payload).rstrip(".") + (
+                    self.status.config(foreground=theme.P["bad"], text="Ошибка: " + str(payload).rstrip(".") + (
                         f". Повтор автоматически через {self.cfg.get('retry_minutes', 30)} мин." if self.auto else ""))
                     if not self.auto:                      # при автозапуске окно не выскакивает
                         messagebox.showerror("Ошибка", str(payload))
@@ -203,19 +204,20 @@ class App(tk.Tk):
         self._render_dashboard()
         self._refresh_sched()
         warn = f" Предупреждения: {len(res.warnings)} (см. вкладку «Отчёт»)." if res.warnings else ""
-        self.status.config(text=f"Готово: {len(res.top)} позиций в топе, отчёт сохранён: {path}.{warn}")
+        self.status.config(foreground=theme.P["ok"],
+                           text=f"✔ Готово: {len(res.top)} позиций в топе, отчёт сохранён: {path}.{warn}")
         if self.auto:                                      # автозапуск: привлекаем внимание, не блокируя работу
             self.bell()
             self.deiconify()
             self.lift()
             self.title(f"WoW Forever — отчёт готов ({len(res.top)} в топе)")
 
-    def _fill(self, tv, rows, empty_hint):
+    def _fill(self, tv, rows, empty_hint, status_col=None):
         tv.delete(*tv.get_children())
         q = self.filter_var.get().strip().lower()
         rows = [r for r in rows if not q or any(q in str(c).lower() for c in r[1])]
-        for ids, vals in self._sorted(tv, rows):
-            iid = tv.insert("", "end", values=vals)
+        for n, (ids, vals) in enumerate(self._sorted(tv, rows)):
+            iid = tv.insert("", "end", values=vals, tags=(vm.row_tag(str(vals[status_col]) if status_col is not None else "", n),))
             self.rows[iid] = ids
         if not rows:
             tv.insert("", "end", values=(empty_hint,) + ("",) * (len(tv["columns"]) - 1))
@@ -227,17 +229,17 @@ class App(tk.Tk):
         self._fill(self.top_tv, vm.top_rows(self.res, self.items),
                    "Нет позиций, прошедших фильтры (см. «Вендор → Аукцион» и причины отказа)")
         self._fill(self.v_tv, vm.vendor_rows(self.res, self.items),
-                   "Список вендоров пуст: нажмите «Вендоры…» → «Вставить список» (ID предмета; цена; вендор; NPC; место)")
+                   "Список вендоров пуст: нажмите «Вендоры…» → «Вставить список» (ID предмета; цена; вендор; NPC; место)",
+                   status_col=len(vm.VENDOR_COLS) - 1)
         self.r_tv.delete(*self.r_tv.get_children())
         tree = vm.route_tree(self.res, self.items)
         for parent, kids in tree:
             pid = self.r_tv.insert("", "end", values=parent, open=True, tags=("vendor",))
-            for ids, vals in kids:
-                iid = self.r_tv.insert(pid, "end", values=vals)
+            for n, (ids, vals) in enumerate(kids):
+                iid = self.r_tv.insert(pid, "end", values=vals, tags=("odd" if n % 2 else "even",))
                 self.rows[iid] = ids
         if not tree:
             self.r_tv.insert("", "end", values=("Пока нечего закупать: нет вендорных позиций, прошедших фильтры", "", "", "", ""))
-        self.r_tv.tag_configure("vendor", background="#eef3fb")
         self._render_report()
 
     # ---------- дашборды ----------
@@ -293,7 +295,7 @@ class App(tk.Tk):
             box.pack(fill="x", padx=8, pady=6)
             for w in notes:
                 ttk.Label(box, text="• " + w, wraplength=1100, justify="left").pack(anchor="w")
-        ttk.Label(page, foreground="#6b7280", wraplength=1150, padding=8, text=(
+        ttk.Label(page, style="Muted.TLabel", wraplength=1150, padding=8, text=(
             "Профессия: у рецептов — чей это рецепт, у материалов — откуда сырьё. Прибыль в день — оценка: "
             "продаж в день × ваша доля × чистая прибыль с штуки.")).pack(anchor="w")
 
@@ -308,8 +310,9 @@ class App(tk.Tk):
         for c, hd, w in zip(cols, vm.PROF_COLS, vm.PROF_WIDTHS):
             tv.heading(c, text=hd)
             tv.column(c, width=w, anchor="w")
-        for ids, vals in vm.profession_rows(self.res, self.items, sm.name):
-            self.rows[tv.insert("", "end", values=vals)] = ids
+        theme.tag_tree(tv)
+        for n, (ids, vals) in enumerate(vm.profession_rows(self.res, self.items, sm.name)):
+            self.rows[tv.insert("", "end", values=vals, tags=(vm.row_tag(vals[-1], n),))] = ids
         tv.bind("<Double-1>", lambda e, tv=tv: self._open_from(tv))
         tv.pack(fill="x", padx=8, pady=6)
 
@@ -476,13 +479,24 @@ class SettingsDialog(tk.Toplevel):
            ("sales_haircut", "Поправка продаж (0.7 = 70%)", "убыль лотов включает отмены, поэтому берём долю")]
 
     def __init__(self, app: App):
-        super().__init__(app)
+        super().__init__(app, bg=theme.P["bg"])
         self.app = app
         self.title("Настройки")
-        self.geometry("720x860")
+        self.geometry("720x720")
         self.vars = {}
-        f = ttk.Frame(self, padding=12)
-        f.pack(fill="both", expand=True)
+        bar = ttk.Frame(self, padding=10)
+        bar.pack(side="bottom", fill="x")
+        ttk.Button(bar, text="Сохранить", style="Accent.TButton", command=self.save).pack(side="right")
+        cv = tk.Canvas(self, highlightthickness=0, bg=theme.P["bg"])
+        sb = ttk.Scrollbar(self, command=cv.yview)
+        f = ttk.Frame(cv, padding=12)
+        win = cv.create_window((0, 0), window=f, anchor="nw")
+        cv.configure(yscrollcommand=sb.set)
+        f.bind("<Configure>", lambda e: cv.configure(scrollregion=cv.bbox("all")))
+        cv.bind("<Configure>", lambda e: cv.itemconfigure(win, width=e.width))
+        self.bind("<MouseWheel>", lambda e: cv.yview_scroll(-1 * (e.delta // 120), "units"))
+        cv.pack(side="left", fill="both", expand=True)
+        sb.pack(side="right", fill="y")
         s = appdata.load_settings(app.cfg)
         r = 0
 
@@ -491,7 +505,7 @@ class SettingsDialog(tk.Toplevel):
             ttk.Label(f, text=label).grid(row=r, column=0, sticky="w", pady=(4, 0))
             v = tk.StringVar(value=value)
             ttk.Entry(f, textvariable=v, width=44, show="*" if secret else "").grid(row=r, column=1, sticky="ew", pady=(4, 0))
-            ttk.Label(f, text=hint, foreground="#777", wraplength=330).grid(row=r + 1, column=1, sticky="w")
+            ttk.Label(f, text=hint, style="Muted.TLabel", wraplength=330).grid(row=r + 1, column=1, sticky="w")
             self.vars[key] = v
             r += 2
         for key, label, hint in self.API:
@@ -512,10 +526,9 @@ class SettingsDialog(tk.Toplevel):
         ttk.Button(helper, text="Аукционы реалма…", command=self.find_houses).pack(side="left", padx=2)
         ttk.Button(helper, text="Проверить подключение", command=self.check).pack(side="left", padx=2)
         r += 1
-        self.info = tk.Text(f, height=6, wrap="word", state="disabled")
+        self.info = tk.Text(f, height=6, wrap="word", state="disabled", relief="flat", bg=theme.P["card"], fg=theme.P["text"], padx=8, pady=6)
         self.info.grid(row=r, column=0, columnspan=2, sticky="nsew", pady=6)
         f.columnconfigure(1, weight=1)
-        ttk.Button(f, text="Сохранить", command=self.save).grid(row=r + 1, column=1, sticky="e")
 
     def say(self, text):
         self.info.config(state="normal")
@@ -589,7 +602,7 @@ class SettingsDialog(tk.Toplevel):
 
 class VendorsDialog(tk.Toplevel):
     def __init__(self, app: App):
-        super().__init__(app)
+        super().__init__(app, bg=theme.P["bg"])
         self.app = app
         self.title("Вендоры: что покупается у NPC")
         self.geometry("980x560")
@@ -708,7 +721,7 @@ class JournalDialog(tk.Toplevel):
     """Журнал реальных сделок: куплено/продано, остаток, прибыль. Покупка у вендора уменьшает его остаток."""
 
     def __init__(self, app: App):
-        super().__init__(app)
+        super().__init__(app, bg=theme.P["bg"])
         self.app = app
         self.title("Сделки")
         self.geometry("860x520")
@@ -731,7 +744,7 @@ class JournalDialog(tk.Toplevel):
         ttk.Radiobutton(form, text="Купил", variable=self.kind, value="buy").grid(row=1, column=3, padx=6)
         ttk.Radiobutton(form, text="Продал", variable=self.kind, value="sell").grid(row=1, column=4, padx=6)
         ttk.Button(form, text="Записать", command=self.add).grid(row=1, column=5, padx=8)
-        ttk.Label(self, foreground="#666", wraplength=820, padding=8, text=(
+        ttk.Label(self, style="Muted.TLabel", wraplength=820, padding=8, text=(
             "Прибыль считается по средней цене покупки и комиссии аукциона из настроек. "
             "Записи нужны, чтобы сверить прогноз приложения с реальностью.")).pack(fill="x")
         self.refresh()
@@ -772,7 +785,7 @@ class WizardDialog(tk.Toplevel):
     ]
 
     def __init__(self, app: App):
-        super().__init__(app)
+        super().__init__(app, bg=theme.P["bg"])
         self.app = app
         self.title("Первый запуск")
         self.geometry("680x420")
@@ -781,7 +794,7 @@ class WizardDialog(tk.Toplevel):
         ttk.Label(f, text="Приложению нужен доступ к API Blizzard", font=("Segoe UI", 13, "bold")).pack(anchor="w")
         for t in self.STEPS:
             ttk.Label(f, text=t, wraplength=630, justify="left").pack(anchor="w", pady=3)
-        ttk.Label(f, foreground="#666", wraplength=630, text=(
+        ttk.Label(f, style="Muted.TLabel", wraplength=630, text=(
             "Неймспейсы и форматы данных Forever в документации Blizzard не подтверждены, поэтому шаг 4 важен. "
             "Хотите сначала посмотреть, как всё выглядит? Включите демо-режим.")).pack(anchor="w", pady=8)
         b = ttk.Frame(f)
