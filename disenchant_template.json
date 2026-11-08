@@ -1,0 +1,11 @@
+{
+  "rules": [
+    {
+      "classes": [2, 4],
+      "quality": "UNCOMMON",
+      "ilvl_min": 1,
+      "ilvl_max": 15,
+      "results": [{"item": 900015, "qty": 1.0}]
+    }
+  ]
+}
