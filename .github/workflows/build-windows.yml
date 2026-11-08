@@ -1,0 +1,38 @@
+name: Сборка для Windows
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ["app.py", "forever_deals/**", "tests/**", ".github/workflows/build-windows.yml"]
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Тесты
+        run: |
+          python -m pip install pytest
+          python -m pytest -q
+      - name: Сборка exe
+        run: |
+          python -m pip install pyinstaller
+          python -m PyInstaller --noconsole --onefile --name ForeverDeals app.py
+      - name: Проверка exe в демо-режиме (без окна)
+        run: |
+          $env:FD_HOME = "$PWD\smoke_home"
+          dist\ForeverDeals.exe --demo --run-once
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          if (-not (Get-ChildItem "$env:FD_HOME\reports\*.html")) { exit 1 }
+      - name: Упаковка
+        run: |
+          Copy-Item README.md, vendors_template.csv, schedule_windows.bat dist\
+          Compress-Archive -Path dist\* -DestinationPath ForeverDeals-windows.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ForeverDeals-windows
+          path: ForeverDeals-windows.zip
