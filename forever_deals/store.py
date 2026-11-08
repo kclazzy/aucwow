@@ -24,6 +24,9 @@ class Store:
         CREATE TABLE IF NOT EXISTS trade(ts INTEGER, item_id INTEGER, kind TEXT, qty INTEGER, unit_price INTEGER);
         """)
 
+    def close(self):
+        self.db.close()
+
     def wh_get(self, item_id: int):
         """Сохранённый результат сверки с Wowhead или None."""
         row = self.db.execute("SELECT data FROM wh WHERE item_id=?", (item_id,)).fetchone()

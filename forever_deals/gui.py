@@ -794,6 +794,7 @@ class PriceChartDialog(tk.Toplevel):
         else:
             store = Store(app.h / "history.sqlite")
         rows = store.price_history(item_id, int(time.time()) - self.DAYS * 86400)
+        store.close()
         ttk.Label(self, text=name, font=("Segoe UI", 12, "bold"), padding=(12, 10, 12, 0)).pack(anchor="w")
         series = [("Минимальная цена", theme.P["accent"], [r[1] for r in rows]),
                   ("Средняя рыночная", theme.P["warn"], [r[2] for r in rows])]
