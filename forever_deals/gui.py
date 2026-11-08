@@ -4,6 +4,8 @@ from __future__ import annotations
 import os
 import queue
 import re
+import subprocess
+import sys
 import threading
 import time
 import tkinter as tk
@@ -11,7 +13,9 @@ import webbrowser
 from datetime import datetime
 from tkinter import filedialog, messagebox, ttk
 
-from . import appdata, report, runner, vendors, viewmodel as vm
+from pathlib import Path
+
+from . import appdata, report, runner, updater, vendors, viewmodel as vm
 from .blizzard import ApiError, Client
 from .core import Settings, fmt_money, parse_money
 from .links import item_url, npc_url
@@ -64,6 +68,7 @@ class App(tk.Tk):
         ttk.Button(btns, text="Сделки…", command=self.open_journal).pack(side="left", padx=4)
         ttk.Button(btns, text="Настройки…", command=self.open_settings).pack(side="left", padx=4)
         ttk.Button(btns, text="Папка отчётов", command=lambda: self._open_path(self.h / "reports")).pack(side="left", padx=4)
+        ttk.Button(btns, text="Обновить приложение", command=self.update_app).pack(side="left", padx=4)
 
         box = ttk.LabelFrame(self, text="Будут проверяться", padding=8)
         box.pack(fill="x", padx=12)
@@ -310,6 +315,46 @@ class App(tk.Tk):
 
     def open_settings(self):
         SettingsDialog(self)
+
+    # ---------- обновление с GitHub ----------
+    APP_DIR = Path(__file__).resolve().parent.parent
+
+    def update_app(self):
+        if not updater.supported():
+            messagebox.showinfo("Обновление", "Это собранный exe: код обновить нельзя. Скачайте новую версию "
+                                "с github.com/kclazzy/aucwow или запускайте приложение из исходников (python app.py).")
+            return
+        token = self.cfg.get("github_token", "")
+        self.status.config(text="Проверяю обновления на GitHub…")
+        self.bg(lambda: updater.check(self.APP_DIR, token=token), self._on_checked)
+
+    def _on_checked(self, r):
+        if isinstance(r, Exception):
+            self.status.config(text=f"Не удалось проверить обновления: {r}")
+            return messagebox.showerror("Обновление", str(r))
+        has, local, remote = r
+        if not has:
+            self.status.config(text=f"Установлена последняя версия ({local[:7]}).")
+            return messagebox.showinfo("Обновление", f"Установлена последняя версия ({local[:7]}).")
+        old = "неизвестна" if local == updater.UNKNOWN else local[:7]
+        if not messagebox.askyesno("Обновление", f"Доступна новая версия {remote[:7]} (у вас: {old}).\nОбновить сейчас? "
+                                   "Настройки, вендоры, история и отчёты не затрагиваются."):
+            return self.status.config(text="Обновление отложено.")
+        self.status.config(text="Скачиваю обновление…")
+        token = self.cfg.get("github_token", "")
+        self.bg(lambda: updater.update(self.APP_DIR, token=token), self._on_updated)
+
+    def _on_updated(self, r):
+        if isinstance(r, Exception):
+            self.status.config(text=f"Обновление не удалось: {r}")
+            return messagebox.showerror("Обновление", str(r))
+        self.status.config(text=f"Обновлено файлов: {len(r)}. Нужен перезапуск.")
+        if messagebox.askyesno("Обновление", f"Обновлено файлов: {len(r)}. Перезапустить приложение сейчас?"):
+            self.restart()
+
+    def restart(self):
+        subprocess.Popen([sys.executable] + sys.argv)
+        self.destroy()
 
     def open_journal(self):
         JournalDialog(self)
