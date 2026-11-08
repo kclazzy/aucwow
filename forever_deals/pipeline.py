@@ -49,6 +49,7 @@ class Result:
     by_category: dict = field(default_factory=dict)
     meta: dict = field(default_factory=dict)
     warnings: list = field(default_factory=list)
+    listings: dict = field(default_factory=dict)     # item_id -> [(цена, шт.)] для сброса рынка
     sources: list = field(default_factory=list)
 
 
@@ -86,6 +87,7 @@ def run(client, store, vendor_items: dict, s: Settings, cfg: dict, now: int | No
     res = Result()
     progress("Загружаю список аукциона…")
     listings = client.auction_listings()
+    res.listings = listings
     aggs = {i: aggregate_listings(l) for i, l in listings.items()}
     aggs = {i: a for i, a in aggs.items() if a.min_price}
     fresh = store.add_snapshot(now, aggs)

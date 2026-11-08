@@ -40,6 +40,7 @@ class Settings:
     budget_item: int = 50000     # меди на позицию
     top_n: int = 10
     min_quantity: int = 3        # меньше штук на аукционе = изолированный лот, цене не верим
+    undercut: int = 1            # на сколько меди ниже минимальной выставлять лот
     sales_haircut: float = 0.7   # оценка по убыли лотов завышена (отмены, перевыставления): берём долю
 
 
@@ -76,6 +77,8 @@ class Evaluation:
     rate_used: float = 0.0
     epd: float = 0.0
     qty: int = 0
+    stock_days: Optional[float] = None   # на сколько дней хватит лотов при текущих продажах
+    list_price: int = 0                  # рекомендуемая цена выставления за шт.
     deposit_loss: float = 0.0
     flags: list = field(default_factory=list)
     rejects: list = field(default_factory=list)
@@ -109,6 +112,12 @@ def evaluate(c: Candidate, s: Settings) -> Evaluation:
     if not real_purchase and c.api_buy_price and e.sell_price >= s.min_markup * c.api_buy_price:
         e.flags.append(f"возможно продаётся NPC (API: {fmt_money(c.api_buy_price)}), проверьте")
     e.epd = e.rate_used * s.share * e.net
+    if c.sales_per_day:
+        e.stock_days = c.quantity / c.sales_per_day
+    floor = math.ceil((c.buy_price + e.deposit_loss + s.min_net) / (1 - s.cut))
+    e.list_price = max(c.min_price - s.undercut, floor)
+    if e.list_price == floor and floor > c.min_price - s.undercut:
+        e.flags.append("цена выставления упирается в закупку")
 
     if c.quantity < s.min_quantity:
         e.rejects.append(f"изолированный лот ({c.quantity} шт.): цене не верим")
@@ -194,3 +203,30 @@ def parse_money(text: str) -> int:
     if not found:
         raise ValueError(f"не понял сумму: {text!r}")
     return total
+
+
+@dataclass(frozen=True)
+class Reset:
+    units: int
+    cost: int
+    revenue: int
+    profit: int
+
+
+def reset_opportunity(listings, target: int, cut: float, min_net: int, budget=None) -> Reset:
+    """Сброс рынка: выкупить дешёвые ярусы и перевыставить по target. listings: (цена за шт., количество).
+    Берём ярус, пока чистая прибыль с шт. не ниже min_net и хватает бюджета."""
+    units = cost = 0
+    unit_revenue = int(target * (1 - cut))
+    for price, qty in sorted(listings):
+        if unit_revenue - price < min_net:
+            break
+        take = qty if budget is None else min(qty, (budget - cost) // price)
+        if take <= 0:
+            break
+        units += take
+        cost += take * price
+        if take < qty:
+            break
+    revenue = units * unit_revenue
+    return Reset(units, cost, revenue, revenue - cost if units else 0)

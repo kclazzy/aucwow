@@ -5,6 +5,8 @@ import re
 from collections import Counter
 from dataclasses import dataclass
 
+from .core import reset_opportunity
+
 TOP_BEST = 5
 
 
@@ -58,3 +60,26 @@ def reason_histogram(res):
     """[(причина, сколько раз)] по убыванию."""
     c = Counter(reason_key(r) for e in res.rejected for r in e.rejects)
     return sorted(c.items(), key=lambda kv: (-kv[1], kv[0]))
+
+
+def shortage_rows(res, limit: int = 15):
+    """Позиции, которых на аукционе хватит на меньше всего дней (дефицит): по возрастанию запаса."""
+    rows = [e for e in list(res.ranked) + list(res.rejected) if e.stock_days is not None]
+    return sorted(rows, key=lambda e: (e.stock_days, e.cand.item_id))[:limit]
+
+
+def reset_rows(res, s, limit: int = 15):
+    """Возможности сброса рынка: что выкупить и перевыставить по обычной (или рыночной) цене. Лучшие по прибыли первыми."""
+    out = []
+    for e in list(res.ranked) + list(res.rejected):
+        c = e.cand
+        target = c.usual_price or c.market_price
+        lots = res.listings.get(c.item_id)
+        if not target or not lots:
+            continue
+        r = reset_opportunity(lots, target, s.cut, s.min_net, s.budget_item)
+        if r.units > 0 and r.profit > 0:
+            days = r.units / c.sales_per_day if c.sales_per_day else None
+            out.append(dict(item_id=c.item_id, name=c.name, units=r.units, cost=r.cost, target=target,
+                            profit=r.profit, days_to_sell=days))
+    return sorted(out, key=lambda r: (-r["profit"], r["item_id"]))[:limit]
