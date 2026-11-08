@@ -7,10 +7,11 @@
 import argparse
 import sys
 
-from forever_deals import appdata, runner
+from forever_deals import appdata, console, runner
 
 
 def main():
+    console.setup()
     ap = argparse.ArgumentParser()
     ap.add_argument("--run-once", action="store_true")
     ap.add_argument("--demo", action="store_true")

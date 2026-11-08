@@ -25,8 +25,8 @@ jobs:
       - name: Проверка exe в демо-режиме (без окна)
         run: |
           $env:FD_HOME = "$PWD\smoke_home"
-          dist\ForeverDeals.exe --demo --run-once
-          if ($LASTEXITCODE -ne 0) { exit 1 }
+          $p = Start-Process dist\ForeverDeals.exe -ArgumentList "--demo","--run-once" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { exit 1 }
           if (-not (Get-ChildItem "$env:FD_HOME\reports\*.html")) { exit 1 }
       - name: Упаковка
         run: |
