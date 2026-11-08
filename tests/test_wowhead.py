@@ -91,13 +91,13 @@ class PipelineCheckTest(unittest.TestCase):
             return self.answers.get(item_id, {"status": "none", "vendors": []})
 
     def test_marks_each_non_vendor_item_once(self):
-        fake = self.Fake({900007: {"status": "vendor", "vendors": [{"npc_id": 5, "name": "Травник", "price": 120, "stock": None}]},
+        fake = self.Fake({900007: {"status": "vendor", "vendors": [{"npc_id": 5, "name": "Травник", "price": None, "stock": None}]},
                           900008: {"status": "unknown", "vendors": []}})
         res = self.run_with(fake)
         self.assertEqual(len(fake.asked), len(set(fake.asked)))
         self.assertNotIn(900001, fake.asked)                  # вендорные из списка пользователя не проверяем
         by = {e.cand.item_id: e for e in res.ranked}
-        self.assertTrue(any("у вендора: Травник" in f for f in by[900007].flags))
+        self.assertTrue(any("у вендора: Травник (обмен" in f for f in by[900007].flags))
         self.assertIn("вендор: не проверено", by[900008].flags)
         self.assertIn("вендор: нет", by[900006].flags)
         self.assertEqual(res.vendor_check[900007]["status"], "vendor")
@@ -110,3 +110,33 @@ class PipelineCheckTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PromotionTest(PipelineCheckTest):
+    """Позиция, которую Wowhead подтвердил как вендорную (с ценой в меди), попадает в «Вендор → Аукцион»."""
+
+    VENDOR = {"status": "vendor", "vendors": [{"npc_id": 5, "name": "Травник", "price": 120, "stock": None}]}
+
+    def test_confirmed_vendor_item_becomes_vendor_row(self):
+        res = self.run_with(self.Fake({900007: self.VENDOR}))
+        row = next(e for e in res.vendor_rows if e.cand.item_id == 900007)
+        self.assertEqual((row.cand.buy_source, row.cand.buy_price, row.cand.vendor_name), ("vendor", 120, "Травник"))
+        self.assertEqual(res.vendor_extra[900007].npc_id, 5)
+        ids = [e.cand.item_id for e in res.ranked + res.rejected]
+        self.assertEqual(ids.count(900007), 1)                      # не дублируется как «возможность»
+
+    def test_exchange_price_is_not_promoted(self):
+        exch = {"status": "vendor", "vendors": [{"npc_id": 5, "name": "Меновщик", "price": None, "stock": None}]}
+        res = self.run_with(self.Fake({900007: exch}))
+        self.assertNotIn(900007, res.vendor_extra)
+        self.assertFalse(any(e.cand.item_id == 900007 for e in res.vendor_rows))
+
+    def test_user_list_item_not_overridden(self):
+        res = self.run_with(self.Fake({900001: self.VENDOR}))
+        self.assertNotIn(900001, res.vendor_extra)
+
+    def test_rejected_items_are_checked_too(self):
+        fake = self.Fake({})
+        res = self.run_with(fake)
+        rejected = {e.cand.item_id for e in res.rejected if e.cand.group != "vendor"}
+        self.assertTrue(rejected & set(fake.asked) or not rejected)

@@ -40,6 +40,13 @@ class ParseTest(unittest.TestCase):
             with self.assertRaises(WebSourceError):
                 websource.parse_html(html)
 
+    def test_error_reports_what_was_on_the_page(self):
+        with self.assertRaises(WebSourceError) as cm:
+            websource.parse_html('<html><script src="a.js"></script><a href="/items/5-x">x</a></html>')
+        self.assertIn("таблиц: 0", str(cm.exception))
+        self.assertIn("скриптов: 1", str(cm.exception))
+        self.assertIn("ссылок на предметы: 1", str(cm.exception))
+
     def test_rows_without_item_id_are_skipped(self):
         html = ("<table><tr><th>Item</th><th>Lowest</th><th>Qty</th></tr>"
                 "<tr><td>Нет ссылки</td><td>5</td><td>3</td></tr></table>")

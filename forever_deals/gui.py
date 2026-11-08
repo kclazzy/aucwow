@@ -103,7 +103,7 @@ class App(tk.Tk):
                                    padding=20)
         self.dash_hint.pack()
         self.top_tv = self._table(vm.TOP_COLS, vm.TOP_WIDTHS, "Топ-10")
-        self.v_tv = self._table(vm.VENDOR_COLS, vm.VENDOR_WIDTHS, "Вендор → Аукцион")
+        self.v_tv = self._table(vm.VENDOR_COLS, vm.VENDOR_WIDTHS, "Покупка у вендора")
         self.r_tv = self._table(vm.ROUTE_COLS, vm.ROUTE_WIDTHS, "Маршрут закупки", sortable=False)
         rep = ttk.Frame(self.nb)
         self.nb.add(rep, text="Отчёт")
@@ -240,9 +240,9 @@ class App(tk.Tk):
             return
         self.rows.clear()
         self._fill(self.top_tv, vm.top_rows(self.res, self.items),
-                   "Нет позиций, прошедших фильтры (см. «Вендор → Аукцион» и причины отказа)")
+                   "Нет позиций, прошедших фильтры (см. «Покупка у вендора» и причины отказа)")
         self._fill(self.v_tv, vm.vendor_rows(self.res, self.items),
-                   "Список вендоров пуст: нажмите «Вендоры…» → «Вставить список» (ID предмета; цена; вендор; NPC; место)",
+                   "Пока нет позиций, которые можно купить у вендора. Они берутся из вашего списка («Вендоры…»), из столбца Vendor сайта (режим без API) и из сверки с Wowhead (нужна цена в монетах)",
                    status_col=len(vm.VENDOR_COLS) - 1)
         self.r_tv.delete(*self.r_tv.get_children())
         tree = vm.route_tree(self.res, self.items)

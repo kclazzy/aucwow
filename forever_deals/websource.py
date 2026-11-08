@@ -155,8 +155,11 @@ def parse_html(html: str, unit: str = "copper") -> list:
                              market=mk if mk is not None else mn, avg=g("avg"), qty=qty, vendor=g("vendor")))
         if rows:
             return rows
+    html = html or ""
+    stats = (f"получено {len(html)} символов, таблиц: {len(p.tables)}, скриптов: {len(re.findall(r'<script', html, re.I))}, "
+             f"ссылок на предметы: {len(re.findall(r'item[s]?[/=]\\d+', html))}")
     raise WebSourceError("таблица цен не найдена: страница, возможно, подгружает данные скриптом. Откройте её в браузере, "
-                         "раскройте весь список, сохраните страницу (Ctrl+S) и укажите файл.")
+                         f"раскройте весь список, сохраните страницу (Ctrl+S) и укажите файл. ({stats})")
 
 
 def _class_of(category: str):

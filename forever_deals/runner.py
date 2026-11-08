@@ -70,6 +70,7 @@ def _run(h, cfg, progress, mark=True):
         res = pipeline.run(client, store, items, s, cfg, now=now, progress=progress, recipes=recipes, de_rules=de_rules,
                            checker=checker)
         res.warnings += warns
+        items = {**res.vendor_extra, **items}                  # вендорные позиции, найденные через Wowhead
         if cfg.get("source") == "web" and not cfg.get("demo"):
             res.warnings += client.warnings()
             res.warnings.append("Источник без API: цены берутся из таблицы сайта (рыночная цена), продаж в день пока нет — они "
