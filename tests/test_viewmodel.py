@@ -49,3 +49,18 @@ class ViewModelTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ProfessionRowsTest(unittest.TestCase):
+    def test_rows_for_profession_best_first_then_rejected(self):
+        from forever_deals import analytics
+        res, _ = run_demo()
+        name = analytics.by_profession(res)[0].name
+        rows = vm.profession_rows(res, demo.VENDORS, name)
+        evs = [e for e in res.ranked + res.rejected if e.cand.profession == name]
+        self.assertEqual(len(rows), len(evs))
+        status = [vals[-1] for _, vals in rows]
+        first_bad = next((i for i, st in enumerate(status) if st.startswith("❌")), len(status))
+        self.assertTrue(all(st.startswith("✅") for st in status[:first_bad]))
+        self.assertTrue(all(st.startswith("❌") for st in status[first_bad:]))
+        self.assertTrue(all(len(vals) == len(vm.PROF_COLS) for _, vals in rows))

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
+from . import analytics
 from .core import Settings, fmt_money
 from .links import item_url, md_link, npc_url
 
@@ -117,6 +118,15 @@ def build_markdown(res, s: Settings, vendor_items: dict, now=None, demo=False, w
                  f"{_rate(e)} | {c.n_auctions} | {status} |")
     if not res.vendor_rows:
         L.append("| Вендорных позиций нет — импортируйте список (кнопка «Вендоры») | | | | | | | | |")
+    L.append("")
+
+    L += ["## Аналитика по профессиям", "",
+          "Профессия: у рецептов — чей это рецепт, у материалов — откуда сырьё (подклассы предметов как в Retail, для Forever не подтверждены).", "",
+          "| Профессия | Позиций | Выгодных | Прибыль/день | Вложить | Средняя наценка | Лучший товар |", "|---|---|---|---|---|---|---|"]
+    for r in analytics.by_profession(res):
+        best = r.best[0].cand.name if r.best else "—"
+        L.append(f"| {r.name} | {r.total} | {r.profitable} | {fmt_money(round(r.epd_total))} | {fmt_money(r.invest)} | "
+                 f"{'×%.1f' % r.avg_markup if r.profitable else '—'} | {best} |")
     L.append("")
 
     route = shopping_route(res, vendor_items)

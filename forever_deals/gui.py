@@ -15,7 +15,7 @@ from tkinter import filedialog, messagebox, ttk
 
 from pathlib import Path
 
-from . import appdata, report, runner, updater, vendors, viewmodel as vm
+from . import analytics, appdata, charts, report, runner, updater, vendors, viewmodel as vm
 from .blizzard import ApiError, Client
 from .core import Settings, fmt_money, parse_money
 from .links import item_url, npc_url
@@ -58,9 +58,9 @@ class App(tk.Tk):
         top.pack(fill="x")
         ttk.Label(top, text=TITLE, font=("Segoe UI", 16, "bold")).grid(row=0, column=0, sticky="w")
         self.sched = ttk.Label(top, text="", foreground="#555")
-        self.sched.grid(row=1, column=0, sticky="w", pady=(2, 8))
+        self.sched.grid(row=1, column=0, sticky="w", pady=(2, 4))
         btns = ttk.Frame(top)
-        btns.grid(row=0, column=1, rowspan=2, sticky="e")
+        btns.grid(row=2, column=0, sticky="w", pady=(0, 4))
         top.columnconfigure(0, weight=1)
         self.run_btn = ttk.Button(btns, text="Выполнить сейчас", command=self.run_now)
         self.run_btn.pack(side="left", padx=4)
@@ -90,6 +90,13 @@ class App(tk.Tk):
 
         self.nb = ttk.Notebook(self)
         self.nb.pack(fill="both", expand=True, padx=12, pady=(4, 6))
+        self.dash = ttk.Frame(self.nb)
+        self.nb.add(self.dash, text="Аналитика")
+        self.dash_nb = ttk.Notebook(self.dash)
+        self.dash_nb.pack(fill="both", expand=True)
+        self.dash_hint = ttk.Label(self.dash, text="Выполните поиск: здесь появятся общий дашборд и вкладки по профессиям.",
+                                   padding=20)
+        self.dash_hint.pack()
         self.top_tv = self._table(vm.TOP_COLS, vm.TOP_WIDTHS, "Топ-10")
         self.v_tv = self._table(vm.VENDOR_COLS, vm.VENDOR_WIDTHS, "Вендор → Аукцион")
         self.r_tv = self._table(vm.ROUTE_COLS, vm.ROUTE_WIDTHS, "Маршрут закупки", sortable=False)
@@ -193,6 +200,7 @@ class App(tk.Tk):
         self.run_btn.state(["!disabled"])
         self.res, self.items, self.last_md, self.last_path = res, items, md, path
         self._render()
+        self._render_dashboard()
         self._refresh_sched()
         warn = f" Предупреждения: {len(res.warnings)} (см. вкладку «Отчёт»)." if res.warnings else ""
         self.status.config(text=f"Готово: {len(res.top)} позиций в топе, отчёт сохранён: {path}.{warn}")
@@ -231,6 +239,84 @@ class App(tk.Tk):
             self.r_tv.insert("", "end", values=("Пока нечего закупать: нет вендорных позиций, прошедших фильтры", "", "", "", ""))
         self.r_tv.tag_configure("vendor", background="#eef3fb")
         self._render_report()
+
+    # ---------- дашборды ----------
+    def _render_dashboard(self):
+        self.dash_hint.destroy()
+        for tab in self.dash_nb.tabs():
+            self.dash_nb.nametowidget(tab).destroy()
+        res = self.res
+        total = analytics.overall(res)
+        profs = analytics.by_profession(res)
+        self._dash_general(total, profs, analytics.reason_histogram(res))
+        for sm in profs:
+            self._dash_profession(sm)
+
+    def _scrolled(self, title):
+        """Страница вкладки с прокруткой."""
+        page = ttk.Frame(self.dash_nb)
+        self.dash_nb.add(page, text=title)
+        cv = tk.Canvas(page, highlightthickness=0)
+        sb = ttk.Scrollbar(page, command=cv.yview)
+        inner = ttk.Frame(cv)
+        win = cv.create_window((0, 0), window=inner, anchor="nw")
+        cv.configure(yscrollcommand=sb.set)
+        inner.bind("<Configure>", lambda e: cv.configure(scrollregion=cv.bbox("all")))
+        cv.bind("<Configure>", lambda e: cv.itemconfigure(win, width=e.width))
+        cv.pack(side="left", fill="both", expand=True)
+        sb.pack(side="right", fill="y")
+        return inner
+
+    def _kpis(self, parent, sm):
+        charts.kpi_row(parent, [
+            ("Кандидатов", str(sm.total), f"выгодных {sm.profitable}, отклонено {sm.rejected}"),
+            ("Прибыль в день", fmt_money(round(sm.epd_total)), "ожидаемая по выгодным позициям"),
+            ("Вложить в закупку", fmt_money(sm.invest), "у вендоров, по рекомендуемым количествам"),
+            ("Средняя наценка", f"×{sm.avg_markup:.1f}" if sm.profitable else "—", "по выгодным позициям"),
+        ]).pack(fill="x", padx=8, pady=(8, 0))
+
+    def _dash_general(self, total, profs, reasons):
+        page = self._scrolled("Общая")
+        self._kpis(page, total)
+        money = lambda v: fmt_money(round(v))
+        charts.BarChart(page, "Ожидаемая прибыль в день по профессиям",
+                        [(p.name, p.epd_total, money(p.epd_total)) for p in profs if p.profitable],
+                        "Нет выгодных позиций").pack(fill="x", padx=8, pady=6)
+        best = sorted((e for p in profs for e in p.best), key=lambda e: -e.epd)[:10]
+        charts.BarChart(page, "Топ-10 товаров по прибыли в день",
+                        [(e.cand.name, e.epd, money(e.epd)) for e in best], "Нет выгодных позиций").pack(fill="x", padx=8, pady=6)
+        charts.BarChart(page, "Почему позиции отклонены",
+                        [(r, n, str(n)) for r, n in reasons[:8]], "Отклонённых нет").pack(fill="x", padx=8, pady=6)
+        notes = list(self.res.warnings)
+        if notes:
+            box = ttk.LabelFrame(page, text="Предупреждения", padding=8)
+            box.pack(fill="x", padx=8, pady=6)
+            for w in notes:
+                ttk.Label(box, text="• " + w, wraplength=1100, justify="left").pack(anchor="w")
+        ttk.Label(page, foreground="#6b7280", wraplength=1150, padding=8, text=(
+            "Профессия: у рецептов — чей это рецепт, у материалов — откуда сырьё. Прибыль в день — оценка: "
+            "продаж в день × ваша доля × чистая прибыль с штуки.")).pack(anchor="w")
+
+    def _dash_profession(self, sm):
+        page = self._scrolled(f"{sm.name} ({sm.profitable})")
+        self._kpis(page, sm)
+        money = lambda v: fmt_money(round(v))
+        charts.BarChart(page, "Лучшие позиции по прибыли в день",
+                        [(e.cand.name, e.epd, money(e.epd)) for e in sm.best], "В этой профессии нет выгодных позиций").pack(fill="x", padx=8, pady=6)
+        cols = [f"c{i}" for i in range(len(vm.PROF_COLS))]
+        tv = ttk.Treeview(page, columns=cols, show="headings", height=min(12, max(3, sm.total)), selectmode="browse")
+        for c, hd, w in zip(cols, vm.PROF_COLS, vm.PROF_WIDTHS):
+            tv.heading(c, text=hd)
+            tv.column(c, width=w, anchor="w")
+        for ids, vals in vm.profession_rows(self.res, self.items, sm.name):
+            self.rows[tv.insert("", "end", values=vals)] = ids
+        tv.bind("<Double-1>", lambda e, tv=tv: self._open_from(tv))
+        tv.pack(fill="x", padx=8, pady=6)
+
+    def _open_from(self, tv):
+        sel = tv.selection()
+        if sel and sel[0] in self.rows and not self.cfg.get("demo"):
+            webbrowser.open(item_url(self.rows[sel[0]][0], self.base))
 
     def _render_report(self):
         self.text.config(state="normal")

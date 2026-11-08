@@ -11,6 +11,8 @@ TOP_COLS = ["#", "Товар", "Категория", "Закупка", "Прод
 TOP_WIDTHS = [30, 230, 140, 75, 85, 100, 70, 50, 105, 80, 115, 150]
 VENDOR_COLS = ["Товар", "Вендор (NPC)", "Расположение", "Закупка", "Продажа", "Наценка", "Чистыми/шт",
                "Продаж/день", "Лотов", "Статус"]
+PROF_COLS = ["Товар", "Тип", "Закупка", "Продажа", "Чистыми/шт", "Продаж/день", "Прибыль/день", "Статус"]
+PROF_WIDTHS = [230, 130, 80, 90, 100, 90, 110, 300]
 ROUTE_COLS = ["Вендор / товар", "Кол-во", "Цена", "Сумма", "Прибыль"]
 ROUTE_WIDTHS = [520, 70, 90, 100, 100]
 VENDOR_WIDTHS = [190, 160, 240, 75, 90, 70, 90, 85, 55, 230]
@@ -95,3 +97,25 @@ def route_tree(res, items):
                 for r in g["rows"]]
         tree.append((parent, kids))
     return tree
+
+
+def bar_lengths(values, width: int):
+    """Длины столбиков диаграммы в пикселях: самый большой = width, отрицательные не рисуются."""
+    top = max((v for v in values if v > 0), default=0)
+    return [int(round(width * v / top)) if top and v > 0 else 0 for v in values]
+
+
+def profession_rows(res, items, name):
+    """Все позиции профессии: выгодные по прибыли в день, затем отклонённые с причиной."""
+    evs = [e for e in list(res.ranked) + list(res.rejected) if e.cand.profession == name]
+    evs.sort(key=lambda e: (bool(e.rejects), -e.epd if not e.rejects else 0, e.cand.item_id))
+    out = []
+    for e in evs:
+        c = e.cand
+        v = items.get(c.item_id)
+        has = bool(c.min_price)
+        out.append(((c.item_id, v.npc_id if v else None),
+                    (c.name, c.category, fmt_money(c.buy_price), fmt_money(e.sell_price) if has else "—",
+                     fmt_money(e.net) if has else "—", _rate(e), fmt_money(round(e.epd)) if not e.rejects else "—",
+                     "✅ выгодно" if not e.rejects else "❌ " + "; ".join(e.rejects))))
+    return out
