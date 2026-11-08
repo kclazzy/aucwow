@@ -35,6 +35,20 @@ def load_user_tables(h, warnings: list):
     return out[0], out[1]
 
 
+def _add_faction_only(res, client):
+    """Предметы, у которых на странице нет цены основной фракции, всё равно попадают в общий список."""
+    have = {r["item_id"] for r in res.catalog}
+    prim = client.primary()
+    for r in client.rows:
+        if r["item_id"] in have or not r.get("factions"):
+            continue
+        price = min(r["factions"].values())
+        res.catalog.append(dict(item_id=r["item_id"], name=r["name"], category=r["category"] or "Прочее", min=price, market=price,
+                                qty=0, rate=None, vendor="", vendor_price=None,
+                                note=f"нет цены у фракции {prim}; есть у: {', '.join(sorted(r['factions']))}"))
+    res.catalog.sort(key=lambda r: r["name"])
+
+
 def _run(h, cfg, progress, mark=True):
     s = appdata.load_settings(cfg)
     items = demo.VENDORS if cfg.get("demo") else vendors.load(h / "vendors.json")
@@ -47,6 +61,8 @@ def _run(h, cfg, progress, mark=True):
         client = websource.WebClient({**cfg, "debug_dir": str(h)}).load()                   # без API: таблица цен со страницы или из файла
         store = Store(h / "history.sqlite")
         progress(f"Таблица цен загружена: {len(client.rows)} предметов.")
+        if client.faction_mode():                                  # страница сравнения фракций: остальные фракции — «аукционы»
+            cfg = {**cfg, "house_name": client.primary(), "compare_houses": client.other_houses(s.cut)}
         items = {**client.vendor_items(), **items}                # свой список вендоров важнее данных сайта
     else:
         if not appdata.configured(cfg):
@@ -70,6 +86,8 @@ def _run(h, cfg, progress, mark=True):
         res = pipeline.run(client, store, items, s, cfg, now=now, progress=progress, recipes=recipes, de_rules=de_rules,
                            checker=checker)
         res.warnings += warns
+        if cfg.get("source") == "web" and client.faction_mode():
+            _add_faction_only(res, client)
         items = {**res.vendor_extra, **items}                  # вендорные позиции, найденные через Wowhead
         if cfg.get("source") == "web" and not cfg.get("demo"):
             res.warnings += client.warnings()

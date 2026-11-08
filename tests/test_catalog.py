@@ -108,3 +108,45 @@ class PipelineCatalogTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+FACTION_PAGE = """<html><a data-nav-item="feedback" href="/feedback">Feedback</a>
+<table><tr><th></th><th>Alliance</th><th>vs</th><th>Horde</th></tr>
+<tr><td><a href="/forever/item/2589">Linen Cloth</a></td><td>1g 50s</td><td>+166%</td><td>4g</td></tr>
+<tr><td><a href="/forever/item/2320">Coarse Thread</a></td><td>2.5g</td><td>-20%</td><td>2g</td></tr>
+<tr><td><a href="/forever/item/4306">Silk Cloth</a></td><td>—</td><td></td><td>5g</td></tr></table>
+<table><tr><th>City</th><th>Faction</th></tr><tr><td>Stormwind</td><td>Alliance</td></tr></table></html>"""
+
+
+class FactionTableTest(unittest.TestCase):
+    def test_faction_comparison_rows(self):
+        rows = websource.parse_html(FACTION_PAGE)
+        by = {r["item_id"]: r["factions"] for r in rows}
+        self.assertEqual(by[2589], {"Alliance": 15000, "Horde": 40000})
+        self.assertEqual(by[2320], {"Alliance": 25000, "Horde": 20000})      # «2.5g» — это 2з 50с, а не 5з
+        self.assertEqual(by[4306], {"Horde": 50000})
+        self.assertEqual(len(rows), 3)
+
+    def test_primary_faction_from_url_and_other_houses(self):
+        c = websource.WebClient({"web_source_url": "https://x/forever/ah?region=eu&faction=horde"})
+        c.rows = websource.parse_html(FACTION_PAGE)
+        self.assertEqual(c.primary(), "Horde")
+        self.assertEqual(c.auction_listings()[2589][0][0], 40000)
+        self.assertNotIn(2589 + 1, c.auction_listings())
+        self.assertEqual([h["name"] for h in c.other_houses(0.05)], ["Alliance"])
+        self.assertEqual(c.auction_listings(house="Alliance")[2589][0][0], 15000)
+        self.assertTrue(any("количество" in w for w in c.warnings()))
+
+    def test_run_finds_cross_faction_arbitrage(self):
+        d = tempfile.TemporaryDirectory()
+        self.addCleanup(d.cleanup)
+        h = Path(d.name)
+        (h / "p.html").write_text(FACTION_PAGE, encoding="utf-8")
+        cfg = {**appdata.DEFAULT_CFG, "source": "web", "web_source_file": str(h / "p.html"), "web_faction": "Alliance",
+               "wowhead_check": False}
+        res, *_ = runner.run_search(h, cfg)
+        top = res.arb_rows[0]
+        self.assertEqual((top["item_id"], top["buy_house"], top["sell_house"]), (2589, "Alliance", "Horde"))
+        self.assertGreater(top["net"], 0)
+        self.assertEqual({r["item_id"] for r in res.catalog}, {2589, 2320, 4306})
+        self.assertTrue(any("количество" in w for w in res.warnings))

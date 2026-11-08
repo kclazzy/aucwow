@@ -92,6 +92,9 @@ def _money(text: str, unit: str):
     t = text.strip().lower()
     if not t or t in {"—", "-", "–", "n/a", "н/д"}:
         return None
+    dec = re.fullmatch(r"(\d+[.,]\d+)\s*[gз]", t)
+    if dec:                                                  # «2.5g» = 2з 50с
+        return int(round(float(dec.group(1).replace(",", ".")) * 10000))
     if re.search(r"[зgсsмmc]", t) and re.search(r"\d", t):
         try:
             return parse_money(t)
@@ -175,6 +178,39 @@ def _diagnostics(html: str, tables) -> str:
             f"ссылок на предметы: {len(ITEM_LINK.findall(html))}; " + "; ".join(heads) + "." + around)
 
 
+FACTION_WORDS = (("alliance", "Alliance"), ("альянс", "Alliance"), ("horde", "Horde"), ("орд", "Horde"),
+                 ("neutral", "Neutral"), ("нейтрал", "Neutral"))
+
+
+def _faction_of(text: str):
+    t = text.strip().lower()
+    return next((name for key, name in FACTION_WORDS if key in t), None)
+
+
+def _faction_rows(tables, unit):
+    """Таблица сравнения фракций («| Alliance | vs | Horde |»): цена предмета у каждой фракции, количества нет."""
+    for table in tables:
+        for hi, head in enumerate(table[:3]):
+            fcols = {}
+            for i, cell in enumerate(head):
+                f = _faction_of(cell["text"])
+                if f and f not in fcols.values():
+                    fcols[i] = f
+            if len(fcols) < 2:
+                continue
+            rows = []
+            for tr in table[hi + 1:]:
+                it = next((x for c in tr if (x := _item(c))), None)
+                prices = {f: _money(tr[i]["text"], unit) for i, f in fcols.items() if i < len(tr)}
+                prices = {f: v for f, v in prices.items() if v}
+                if it and prices:
+                    rows.append(dict(item_id=it[0], name=it[1], category=it[2], level=it[3], min=None, market=None,
+                                     avg=None, qty=None, vendor=None, factions=prices))
+            if rows:
+                return rows
+    return []
+
+
 def parse_html(html: str, unit: str = "copper") -> list:
     p = _Tables()
     try:
@@ -197,6 +233,9 @@ def parse_html(html: str, unit: str = "copper") -> list:
         if idx is not None and len(cols) >= 2:
             carried = cols
     html = html or ""
+    rows = _faction_rows(p.tables, unit)
+    if rows:
+        return rows
     rows = _parse_json(html, unit)               # страница могла отдать данные JSON-блоком, а таблицу нарисовать скриптом
     if rows:
         return rows
@@ -336,15 +375,45 @@ class WebClient:
         self.rows = list(merged.values())
         return self
 
+    def faction_mode(self) -> bool:
+        return any(r.get("factions") for r in self.rows)
+
+    def primary(self) -> str:
+        """Основная фракция: из настройки web_faction, из параметра faction= в ссылке или первая в таблице."""
+        names = []
+        for r in self.rows:
+            for f in r.get("factions", {}):
+                if f not in names:
+                    names.append(f)
+        want = (self.cfg.get("web_faction") or "").strip()
+        if not want:
+            m = re.search(r"[?&]faction=([^&#]+)", self.cfg.get("web_source_url", "") or "")
+            want = m.group(1) if m else ""
+        return next((n for n in names if n.lower() == want.lower() or _faction_of(want) == n), names[0] if names else "")
+
+    def other_houses(self, cut: float) -> list:
+        """Остальные фракции как «аукционы для сравнения» (комиссия берётся из настроек)."""
+        prim = self.primary()
+        names = sorted({f for r in self.rows for f in r.get("factions", {})} - {prim})
+        return [{"id": n, "name": n, "cut": cut} for n in names]
+
     def warnings(self) -> list:
         n = len(self.rows)
         out = []
         if n in (50, 100):
             out.append(f"В таблице ровно {n} строк: возможно, показана только часть списка. Раскройте её целиком "
                        "(кнопка «Show more») и сохраните страницу заново.")
+        if self.faction_mode():
+            out.append("Страница сравнивает цены фракций и не указывает количество лотов: для оценок принято минимальное "
+                       "количество, «Брать, шт.» и запас ненадёжны. Показываются цены по фракциям и разница между ними; "
+                       "прибыль в таблице «Аукционы» считается по минимальному количеству.")
         return out
 
     def auction_listings(self, house=None) -> dict:
+        if self.faction_mode():
+            name = house or self.primary()
+            qty = int(self.cfg.get("min_quantity", 3))
+            return {r["item_id"]: [(r["factions"][name], qty)] for r in self.rows if name in r.get("factions", {})}
         if house is not None:
             return {}
         return {r["item_id"]: [(r["market"] or r["min"], r["qty"])] for r in self.rows}
