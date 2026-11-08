@@ -64,6 +64,9 @@ def apply(root, family="Segoe UI"):
            foreground=[("disabled", P["muted"])])
     st.configure("TNotebook", background=P["bg"], borderwidth=0, tabmargins=(0, 4, 0, 0))
     st.configure("TNotebook.Tab", padding=(14, 7), background=P["border"], foreground=P["muted"])
+    st.configure("Dash.TNotebook", background=P["bg"], borderwidth=0, tabmargins=(0, 4, 0, 0))
+    st.configure("Dash.TNotebook.Tab", padding=(8, 6), background=P["border"], foreground=P["muted"])
+    st.map("Dash.TNotebook.Tab", background=[("selected", P["card"])], foreground=[("selected", P["accent"])])
     st.map("TNotebook.Tab", background=[("selected", P["card"])], foreground=[("selected", P["accent"])])
     st.configure("Treeview", background=P["card"], fieldbackground=P["card"], foreground=P["text"], rowheight=27,
                  borderwidth=0)

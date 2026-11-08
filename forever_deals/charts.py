@@ -5,6 +5,7 @@ import tkinter as tk
 from tkinter import ttk
 
 from . import theme, viewmodel as vm
+from .core import fmt_money
 
 BAR, MUTED, TEXT, CARD = theme.P["bar"], theme.P["muted"], theme.P["text"], theme.P["card"]
 
@@ -49,3 +50,39 @@ class BarChart(ttk.LabelFrame):
             c.create_rectangle(self.LABEL_W, y + 3, self.LABEL_W + max(ln, 1 if value > 0 else 0), y + self.ROW - 4,
                                fill=BAR, outline="")
             c.create_text(self.LABEL_W + ln + 6, y + self.ROW / 2, anchor="w", text=text, fill=TEXT, font=("Segoe UI", 10, "bold"))
+
+
+class LineChart(tk.Canvas):
+    """Линейный график: ряд значений по оси X (дни). Пустой ряд показывает подсказку."""
+
+    def __init__(self, parent, series, empty="Нет данных", height=260, width=640):
+        super().__init__(parent, height=height, width=width, highlightthickness=0, bg=CARD)
+        self.series, self.empty = series, empty     # [(название, цвет, [значения|None])]
+        self.labels = []
+        self.bind("<Configure>", lambda e: self.draw())
+
+    def draw(self):
+        self.delete("all")
+        w, h = self.winfo_width(), self.winfo_height()
+        known = [v for _, _, vals in self.series for v in vals if v is not None]
+        if not known:
+            self.create_text(w / 2, h / 2, text=self.empty, fill=MUTED, font=("Segoe UI", 10))
+            return
+        lo, hi = min(known), max(known)
+        pad_l, pad = 70, 14
+        for k in range(5):                           # горизонтальные линии сетки и подписи цен
+            y = pad + (h - 2 * pad - 18) * k / 4
+            self.create_line(pad_l, y, w - pad, y, fill=theme.P["muted"])
+            self.create_text(pad_l - 6, y, anchor="e", fill=MUTED, font=("Segoe UI", 9),
+                             text=fmt_money(round(hi - (hi - lo) * k / 4)))
+        for name, color, vals in self.series:
+            pts = vm.line_points(vals, w - pad_l, h - 18, pad=pad)
+            pts = [(x + pad_l - pad, y) for x, y in pts]
+            for a, b in zip(pts, pts[1:]):
+                self.create_line(*a, *b, fill=color, width=2)
+            for x, y in pts:
+                self.create_oval(x - 3, y - 3, x + 3, y + 3, fill=color, outline="")
+        n = max(len(v) for _, _, v in self.series)
+        for i, lab in enumerate(self.labels):
+            x = pad_l + (w - pad_l - pad) * (i / (n - 1) if n > 1 else 0)
+            self.create_text(x, h - 8, text=lab, fill=MUTED, font=("Segoe UI", 9))

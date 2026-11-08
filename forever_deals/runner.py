@@ -53,6 +53,8 @@ def _run(h, cfg, progress, mark=True):
         recipes, de_rules = crafting.parse_text(demo.RECIPES_TEXT)[0], demo.DE_RULES
     else:
         recipes, de_rules = load_user_tables(h, warns)
+    if cfg.get("demo"):
+        cfg = {**cfg, "compare_houses": [{"id": "2", "name": "Blackwater (демо)", "cut": 0.15}]}
     res = pipeline.run(client, store, items, s, cfg, now=now, progress=progress, recipes=recipes, de_rules=de_rules)
     res.warnings += warns
     md = report.build_markdown(res, s, items, demo=bool(cfg.get("demo")), wowhead_base=cfg.get("wowhead_base"))
