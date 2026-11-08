@@ -46,6 +46,14 @@ class Store:
             "GROUP BY ts/? ORDER BY 1", (DAY, item_id, since, DAY))
         return cur.fetchall()
 
+    def price_history(self, item_id: int, since: int):
+        """[(начало суток UTC, минимальная цена за сутки, средняя рыночная)] по возрастанию."""
+        cur = self.db.execute(
+            "SELECT (ts/?)*?, MIN(min_price), CAST(AVG(market) AS INTEGER) FROM snap "
+            "WHERE item_id=? AND ts>=? AND min_price IS NOT NULL GROUP BY ts/? ORDER BY 1",
+            (DAY, DAY, item_id, since, DAY))
+        return cur.fetchall()
+
     def history_days(self, item_id: int, since: int) -> int:
         cur = self.db.execute("SELECT COUNT(DISTINCT ts/?) FROM snap WHERE item_id=? AND ts>=?", (DAY, item_id, since))
         return cur.fetchone()[0]

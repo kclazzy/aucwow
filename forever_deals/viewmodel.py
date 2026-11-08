@@ -128,3 +128,21 @@ def row_tag(status: str, index: int) -> str:
     if status.startswith("❌"):
         return "bad"
     return "odd" if index % 2 else "even"
+
+
+def line_points(values, width: int, height: int, pad: int = 12):
+    """Координаты точек линейного графика. None пропускается, но место по оси X сохраняется.
+    Минимум внизу, максимум вверху; постоянный ряд рисуется по центру."""
+    n = len(values)
+    known = [v for v in values if v is not None]
+    if not known:
+        return []
+    lo, hi = min(known), max(known)
+    out = []
+    for i, v in enumerate(values):
+        if v is None:
+            continue
+        x = pad if n == 1 else pad + (width - 2 * pad) * i / (n - 1)
+        y = height / 2 if hi == lo else height - pad - (height - 2 * pad) * (v - lo) / (hi - lo)
+        out.append((int(round(x)), int(round(y))))
+    return out
