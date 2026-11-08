@@ -12,6 +12,29 @@ CLASS_TRADE, CLASS_RECIPE = 7, 9
 TRADE_SUB = {5: "Ткань", 6: "Кожа", 7: "Руда и камень", 9: "Трава"}
 
 
+# Профессия по подклассу (ID как в Retail; для Forever не подтверждены, меняются в config.json: recipe_prof, trade_prof)
+RECIPE_PROF = {1: "Кожевничество", 2: "Портняжное дело", 3: "Инженерное дело", 4: "Кузнечное дело", 5: "Кулинария",
+               6: "Алхимия", 7: "Первая помощь", 8: "Наложение чар", 9: "Рыбалка", 10: "Ювелирное дело"}
+TRADE_PROF = {1: "Инженерное дело", 2: "Инженерное дело", 3: "Инженерное дело", 4: "Ювелирное дело", 5: "Портняжное дело",
+              6: "Кожевничество", 7: "Горное дело", 8: "Кулинария", 9: "Травничество", 12: "Наложение чар"}
+OTHER = "Прочее"
+
+
+def profession(info, cfg: dict) -> str:
+    """Рецепт -> чья профессия; торговый товар -> из какой профессии сырьё; иначе «Прочее»."""
+    if not info:
+        return OTHER
+    recipe = {int(k): v for k, v in (cfg.get("recipe_prof") or RECIPE_PROF).items()}
+    trade = {int(k): v for k, v in (cfg.get("trade_prof") or TRADE_PROF).items()}
+    _, class_recipe, _ = class_map(cfg)
+    class_trade = class_map(cfg)[0]
+    if info.get("class_id") == class_recipe:
+        return recipe.get(info.get("subclass_id"), OTHER)
+    if info.get("class_id") == class_trade:
+        return trade.get(info.get("subclass_id"), OTHER)
+    return OTHER
+
+
 def class_map(cfg: dict):
     sub = {int(k): v for k, v in (cfg.get("trade_sub") or TRADE_SUB).items()}
     return int(cfg.get("class_trade", CLASS_TRADE)), int(cfg.get("class_recipe", CLASS_RECIPE)), sub
@@ -109,7 +132,7 @@ def run(client, store, vendor_items: dict, s: Settings, cfg: dict, now: int | No
             vendor_sell=vendor_sell, quantity=agg.quantity if agg else 0, n_auctions=agg.n_auctions if agg else 0,
             sales_per_day=rate, history_days=store.history_days(item_id, now - 14 * DAY),
             usual_price=usual_price(mins), stock=v.stock if v else None,
-            api_buy_price=info.get("purchase_price", 0),
+            api_buy_price=info.get("purchase_price", 0), profession=profession(info, cfg),
             vendor_name=v.vendor if v else "", location=v.location if v else ""))
 
     ranked, rejected = rank(cands, s)

@@ -62,6 +62,7 @@ class Candidate:
     stock: Optional[int] = None  # остаток у вендора, None = без ограничения
     vendor_name: str = ""
     location: str = ""
+    profession: str = "Прочее"  # чей рецепт или откуда сырьё
     api_buy_price: int = 0       # цена покупки из API предмета (не подтверждает, что предмет продаёт NPC)
 
 
