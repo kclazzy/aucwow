@@ -60,6 +60,7 @@ class Result:
     prices: dict = field(default_factory=dict)        # id -> Aggregate по всему аукциону
     notified: dict = field(default_factory=dict)      # итог отправки оповещений
     vendor_extra: dict = field(default_factory=dict)  # id -> VendorItem, найденные через Wowhead
+    catalog: list = field(default_factory=list)       # все просканированные предметы с категориями и признаком вендора
     vendor_check: dict = field(default_factory=dict)  # id -> итог сверки с Wowhead (продаётся ли у вендора)
 
 
@@ -163,6 +164,32 @@ def _vendor_flags(res):
                             "Они будут проверены в следующих запусках.")
 
 
+def _catalog(res, store, aggs, vendor_items, cands):
+    """Общий список: все просканированные предметы с известными данными, категория (с сайта, если есть) и признак вендора."""
+    by = {c.item_id: c for c in cands}
+    out = []
+    for item_id, agg in aggs.items():
+        info = store.get_item(item_id)
+        if not info:
+            continue
+        c = by.get(item_id)
+        v, chk = vendor_items.get(item_id), res.vendor_check.get(item_id)
+        state, price, note = "", None, ""
+        if v:
+            state, price = "да", v.price
+        elif chk and chk["status"] == "vendor":
+            state, note = "возможно", "у вендора, но за обмен на валюту/предметы (Wowhead)"
+        elif chk and chk["status"] == "none":
+            state = "нет"
+        elif info.get("purchase_price", 0) > 0:
+            state, note = "возможно", f"API: цена у NPC {fmt_money(info['purchase_price'])}, на Wowhead ещё не проверено"
+        out.append(dict(item_id=item_id, name=info.get("name", f"#{item_id}"),
+                        category=info.get("site_category") or (c.category if c else "") or "Прочее",
+                        min=agg.min_price, market=agg.market_price, qty=agg.quantity,
+                        rate=c.sales_per_day if c else None, vendor=state, vendor_price=price, note=note))
+    res.catalog = sorted(out, key=lambda r: r["name"])
+
+
 def run(client, store, vendor_items: dict, s: Settings, cfg: dict, now: int | None = None, progress=lambda m: None,
         recipes: dict | None = None, de_rules: list | None = None, checker=None) -> Result:
     recipes = recipes or {}
@@ -245,6 +272,7 @@ def run(client, store, vendor_items: dict, s: Settings, cfg: dict, now: int | No
                     realm=cfg.get("connected_realm_id"), house=cfg.get("auction_house_id"))
     res.prices = aggs
     _vendor_flags(res)
+    _catalog(res, store, aggs, vendor_items, cands)
     _compare_houses(res, client, store, aggs, s, cfg)
     _extras(res, store, aggs, vendor_items, recipes, craft_ids, de_rules, s, now)
     res.sources = client.sources()

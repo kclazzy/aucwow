@@ -9,6 +9,11 @@ from .report import shopping_route
 TOP_COLS = ["#", "Товар", "Категория", "Закупка", "Продажа", "Чистыми/шт", "Наценка", "ROI",
             "Продаж/день", "Запас, дн.", "Брать, шт", "Выставлять по", "Прибыль/день", "Метки"]
 TOP_WIDTHS = [30, 200, 120, 75, 90, 100, 75, 50, 95, 80, 80, 120, 110, 110]
+CATALOG_COLS = ["Товар", "Категория", "Мин. цена", "Рыночная", "Шт. на АХ", "Продаж/день", "У вендора", "Цена у вендора",
+                "Наценка", "Примечание"]
+CATALOG_WIDTHS = [240, 130, 90, 90, 90, 95, 85, 105, 80, 260]
+POSSIBLE_COLS = ["Товар", "Категория", "Цена на АХ", "Почему возможно"]
+POSSIBLE_WIDTHS = [280, 150, 120, 520]
 SHORT_COLS = ["Товар", "Профессия", "Лотов, шт.", "Продаж/день", "Запас, дн.", "Цена сейчас", "Выставлять по"]
 SHORT_WIDTHS = [260, 140, 90, 100, 90, 110, 120]
 RESET_COLS = ["Товар", "Выкупить, шт.", "Затраты", "Перевыставить по", "Прибыль", "Дней на продажу"]
@@ -200,3 +205,30 @@ def arb_table(res):
     return [((r["item_id"], None), (r["name"], r["buy_house"], fmt_money(r["buy"]), r["sell_house"], fmt_money(r["sell"]),
                                     fmt_money(r["net"]), r["qty"], fmt_money(r["profit"])))
             for r in res.arb_rows]
+
+
+def catalog_categories(res):
+    """[("Все", n), (категория, n)…]: вкладки общего списка; категории по убыванию числа предметов."""
+    counts = {}
+    for r in res.catalog:
+        counts[r["category"]] = counts.get(r["category"], 0) + 1
+    return [("Все", len(res.catalog))] + sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))
+
+
+def catalog_table(res, category=None):
+    out = []
+    for r in res.catalog:
+        if category not in (None, "Все") and r["category"] != category:
+            continue
+        mult = f"×{r['market'] / r['vendor_price']:.1f}" if r["vendor_price"] and r["market"] else "—"
+        rate = "н/д" if r["rate"] is None else f"{r['rate']:.1f}"
+        out.append(((r["item_id"], None), (r["name"], r["category"], fmt_money(r["min"]) if r["min"] else "—",
+                                           fmt_money(r["market"]) if r["market"] else "—", r["qty"], rate, r["vendor"] or "—",
+                                           fmt_money(r["vendor_price"]) if r["vendor_price"] else "—", mult, r["note"] or "—")))
+    return out
+
+
+def possible_table(res):
+    """Предметы, которые, возможно, продаются у вендора (подтверждения цены в монетах пока нет)."""
+    return [((r["item_id"], None), (r["name"], r["category"], fmt_money(r["market"] or r["min"] or 0), r["note"]))
+            for r in res.catalog if r["vendor"] == "возможно"]

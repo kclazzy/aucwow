@@ -102,8 +102,16 @@ class App(tk.Tk):
         self.dash_hint = ttk.Label(self.dash, text="Выполните поиск: здесь появятся общий дашборд и вкладки по профессиям.",
                                    padding=20)
         self.dash_hint.pack()
+        self.cat_frame = ttk.Frame(self.nb)
+        self.nb.add(self.cat_frame, text="Все позиции")
+        self.cat_nb = ttk.Notebook(self.cat_frame, style="Dash.TNotebook")
+        self.cat_nb.pack(fill="both", expand=True)
+        self.cat_hint = ttk.Label(self.cat_frame, text="Выполните поиск: здесь появятся все просканированные предметы, "
+                                  "общий список и вкладки по категориям.", padding=20)
+        self.cat_hint.pack()
         self.top_tv = self._table(vm.TOP_COLS, vm.TOP_WIDTHS, "Топ-10")
         self.v_tv = self._table(vm.VENDOR_COLS, vm.VENDOR_WIDTHS, "Покупка у вендора")
+        self.p_tv = self._table(vm.POSSIBLE_COLS, vm.POSSIBLE_WIDTHS, "Возможно у вендора")
         self.r_tv = self._table(vm.ROUTE_COLS, vm.ROUTE_WIDTHS, "Маршрут закупки", sortable=False)
         rep = ttk.Frame(self.nb)
         self.nb.add(rep, text="Отчёт")
@@ -147,11 +155,12 @@ class App(tk.Tk):
         return tv
 
     def _sort(self, tv, col):
-        self.sort_state[tv] = (col, not (self.sort_state.get(tv, (None, False))[0] == col and self.sort_state[tv][1]))
+        key = getattr(tv, "sort_id", tv)               # вкладки категорий пересоздаются, поэтому ключ — их имя
+        self.sort_state[key] = (col, not (self.sort_state.get(key, (None, False))[0] == col and self.sort_state[key][1]))
         self._render()
 
     def _sorted(self, tv, rows):
-        col, desc = self.sort_state.get(tv, (None, False))
+        col, desc = self.sort_state.get(getattr(tv, "sort_id", tv), (None, False))
         if col is None:
             return rows
         return sorted(rows, key=lambda r: vm.sort_key(r[1][col]), reverse=desc)
@@ -244,6 +253,9 @@ class App(tk.Tk):
         self._fill(self.v_tv, vm.vendor_rows(self.res, self.items),
                    "Пока нет позиций, которые можно купить у вендора. Они берутся из вашего списка («Вендоры…»), из столбца Vendor сайта (режим без API) и из сверки с Wowhead (нужна цена в монетах)",
                    status_col=len(vm.VENDOR_COLS) - 1)
+        self._fill(self.p_tv, vm.possible_table(self.res),
+                   "Нет предметов, которые возможно продаются у вендора (подтверждённые — на вкладке «Покупка у вендора»)")
+        self._render_catalog()
         self.r_tv.delete(*self.r_tv.get_children())
         tree = vm.route_tree(self.res, self.items)
         for parent, kids in tree:
@@ -254,6 +266,34 @@ class App(tk.Tk):
         if not tree:
             self.r_tv.insert("", "end", values=("Пока нечего закупать: нет вендорных позиций, прошедших фильтры", "", "", "", ""))
         self._render_report()
+
+    def _render_catalog(self):
+        """Общий список всех предметов и вкладки по категориям (пересоздаются при каждом обновлении)."""
+        if self.cat_hint is not None:
+            self.cat_hint.destroy()
+            self.cat_hint = None
+        keep = self.cat_nb.index("current") if self.cat_nb.tabs() else 0
+        for tab in self.cat_nb.tabs():
+            self.cat_nb.nametowidget(tab).destroy()
+        for cat, n in vm.catalog_categories(self.res):
+            page = ttk.Frame(self.cat_nb)
+            self.cat_nb.add(page, text=f"{cat} ({n})")
+            keys = [f"c{i}" for i in range(len(vm.CATALOG_COLS))]
+            tv = ttk.Treeview(page, columns=keys, show="headings", selectmode="browse")
+            tv.sort_id = ("catalog", cat)
+            for i, (k, hd, w) in enumerate(zip(keys, vm.CATALOG_COLS, vm.CATALOG_WIDTHS)):
+                tv.heading(k, text=hd, command=lambda tv=tv, i=i: self._sort(tv, i))
+                tv.column(k, width=w, anchor="w")
+            theme.tag_tree(tv)
+            sb = ttk.Scrollbar(page, command=tv.yview)
+            tv.configure(yscrollcommand=sb.set)
+            tv.pack(side="left", fill="both", expand=True)
+            sb.pack(side="right", fill="y")
+            tv.bind("<Double-1>", lambda e, tv=tv: self._open_from(tv))
+            tv.bind("<<TreeviewSelect>>", lambda e, tv=tv: self._remember(tv))
+            self._fill(tv, vm.catalog_table(self.res, cat), "Нет предметов в этой категории")
+        if keep < len(self.cat_nb.tabs()):
+            self.cat_nb.select(keep)
 
     # ---------- дашборды ----------
     def _render_dashboard(self):
