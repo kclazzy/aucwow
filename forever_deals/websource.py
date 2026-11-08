@@ -62,6 +62,7 @@ class _Tables(HTMLParser):
                 self._cell["link"] += data
 
 
+ITEM_LINK = re.compile(r"item[s]?[/=]\d+")
 COLUMNS = [  # (поле, подстроки заголовка); порядок важен
     ("item", ("item", "name", "предмет", "назван", "товар")),
     ("market", ("market", "рын")),
@@ -157,7 +158,7 @@ def parse_html(html: str, unit: str = "copper") -> list:
             return rows
     html = html or ""
     stats = (f"получено {len(html)} символов, таблиц: {len(p.tables)}, скриптов: {len(re.findall(r'<script', html, re.I))}, "
-             f"ссылок на предметы: {len(re.findall(r'item[s]?[/=]\\d+', html))}")
+             f"ссылок на предметы: {len(ITEM_LINK.findall(html))}")
     raise WebSourceError("таблица цен не найдена: страница, возможно, подгружает данные скриптом. Откройте её в браузере, "
                          f"раскройте весь список, сохраните страницу (Ctrl+S) и укажите файл. ({stats})")
 
