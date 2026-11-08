@@ -40,7 +40,8 @@ class BlizzardTest(unittest.TestCase):
 
     def test_item_parsing(self):
         c = Client(CFG, fake_opener([]))
-        self.assertEqual(c.fetch_item(10), {"name": "Нить", "class_id": 7, "subclass_id": 5, "purchase_price": 8, "sell_price": 2})
+        self.assertEqual(c.fetch_item(10), {"name": "Нить", "class_id": 7, "subclass_id": 5, "quality": None, "level": None,
+                          "purchase_price": 8, "sell_price": 2})
 
     def test_missing_credentials_message(self):
         with self.assertRaises(ApiError):

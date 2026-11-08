@@ -131,6 +131,7 @@ class Client:
         return {"name": d.get("name", f"#{item_id}"),
                 "class_id": d.get("item_class", {}).get("id"),
                 "subclass_id": d.get("item_subclass", {}).get("id"),
+                "quality": d.get("quality", {}).get("type"), "level": d.get("level"),
                 "purchase_price": int(d.get("purchase_price") or 0),
                 "sell_price": int(d.get("sell_price") or 0)}
 

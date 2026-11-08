@@ -5,6 +5,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 
+from . import crafting, disenchant
 from .core import (DAY, Candidate, Settings, aggregate_listings, estimate_sales_per_day, rank, usual_price)
 
 # ID классов предметов как в Retail; для Forever не подтверждены — меняются в config.json
@@ -51,6 +52,10 @@ class Result:
     warnings: list = field(default_factory=list)
     listings: dict = field(default_factory=dict)     # item_id -> [(цена, шт.)] для сброса рынка
     sources: list = field(default_factory=list)
+    craft_rows: list = field(default_factory=list)
+    de_rows: list = field(default_factory=list)
+    names: dict = field(default_factory=dict)         # id -> название для крафта
+    prices: dict = field(default_factory=dict)        # id -> Aggregate по всему аукциону
     notified: dict = field(default_factory=dict)      # итог отправки оповещений
 
 
@@ -83,7 +88,21 @@ def _classify(info, classes):
     return None
 
 
-def run(client, store, vendor_items: dict, s: Settings, cfg: dict, now: int | None = None, progress=lambda m: None) -> Result:
+def _extras(res, store, aggs, vendor_items, recipes, craft_ids, de_rules, s, now):
+    """Крафт (рецепты пользователя) и дизенчант (таблица пользователя)."""
+    if recipes:
+        usual = {i: usual_price([m for _, m in store.daily_mins(i, now - 14 * DAY)]) for i in craft_ids}
+        vendor_buy = {i: v.price for i, v in vendor_items.items()}
+        res.craft_rows = crafting.rank([crafting.craft_profit(r, aggs, vendor_buy, usual, s) for r in recipes.values()])
+        res.names = {i: (store.get_item(i) or {}).get("name", f"#{i}") for i in craft_ids}
+    if de_rules:
+        items = {i: info for i in aggs if (info := store.get_item(i))}
+        res.de_rows = disenchant.rows(items, aggs, de_rules, s)
+
+
+def run(client, store, vendor_items: dict, s: Settings, cfg: dict, now: int | None = None, progress=lambda m: None,
+        recipes: dict | None = None, de_rules: list | None = None) -> Result:
+    recipes = recipes or {}
     now = int(now or time.time())
     res = Result()
     progress("Загружаю список аукциона…")
@@ -100,7 +119,9 @@ def run(client, store, vendor_items: dict, s: Settings, cfg: dict, now: int | No
     cap = int(cfg.get("max_item_lookups", 1500))
     cached = [i for i in aggs if i in vendor_items or store.get_item(i) is not None]
     fresh_ids = sorted((i for i in aggs if i not in cached), key=lambda i: -aggs[i].min_price)
-    vendor_missing = [i for i in vendor_items if store.get_item(i) is None]
+    craft_ids = sorted({i for r in recipes.values() for i in (r.product, *[x for x, _ in r.reagents])})
+    priority = list(dict.fromkeys(list(vendor_items) + craft_ids))
+    vendor_missing = [i for i in priority if store.get_item(i) is None]
     to_fetch = (vendor_missing + [i for i in fresh_ids if i not in vendor_missing])[:cap]
     failed = _lookup_items(client, store, to_fetch)
     if failed:
@@ -149,6 +170,8 @@ def run(client, store, vendor_items: dict, s: Settings, cfg: dict, now: int | No
     res.meta = dict(ts=now, items_on_ah=len(aggs), candidates=len(cands),
                     max_history=max((c.history_days for c in cands), default=0),
                     realm=cfg.get("connected_realm_id"), house=cfg.get("auction_house_id"))
+    res.prices = aggs
+    _extras(res, store, aggs, vendor_items, recipes, craft_ids, de_rules, s, now)
     res.sources = client.sources()
     if looked and not any(c.group != "vendor" for c in cands):
         res.warnings.append("Ни один предмет не распознан как рецепт или материал: проверьте ID классов "
