@@ -23,7 +23,7 @@ class MoneyTest(unittest.TestCase):
 
 class EvaluateTest(unittest.TestCase):
     def test_video_example_net(self):
-        s = Settings(cut=0.05, deposit_pct=0.05, deposit_hours=12, p_sell=0.7, share=0.5)
+        s = Settings(cut=0.05, deposit_pct=0.05, deposit_hours=12, p_sell=0.7, share=0.5, sales_haircut=1.0)
         e = evaluate(cand(), s)
         # 1500*0.95 - 8 - 0.05*2*0.3 = 1416.97 -> int
         self.assertEqual(e.net, 1416)

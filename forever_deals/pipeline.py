@@ -7,8 +7,14 @@ from dataclasses import dataclass, field
 
 from .core import (DAY, Candidate, Settings, aggregate_listings, estimate_sales_per_day, rank, usual_price)
 
+# ID классов предметов как в Retail; для Forever не подтверждены — меняются в config.json
 CLASS_TRADE, CLASS_RECIPE = 7, 9
 TRADE_SUB = {5: "Ткань", 6: "Кожа", 7: "Руда и камень", 9: "Трава"}
+
+
+def class_map(cfg: dict):
+    sub = {int(k): v for k, v in (cfg.get("trade_sub") or TRADE_SUB).items()}
+    return int(cfg.get("class_trade", CLASS_TRADE)), int(cfg.get("class_recipe", CLASS_RECIPE)), sub
 
 
 @dataclass
@@ -41,13 +47,14 @@ def _lookup_items(client, store, ids, workers=8):
     return failed
 
 
-def _classify(info):
-    if info is None:
+def _classify(info, classes):
+    if not info:
         return None
-    if info.get("class_id") == CLASS_RECIPE:
+    trade, recipe, sub = classes
+    if info.get("class_id") == recipe:
         return "recipe", "Рецепт"
-    if info.get("class_id") == CLASS_TRADE and info.get("subclass_id") in TRADE_SUB:
-        return "material", TRADE_SUB[info["subclass_id"]]
+    if info.get("class_id") == trade and info.get("subclass_id") in sub:
+        return "material", sub[info["subclass_id"]]
     return None
 
 
@@ -58,24 +65,35 @@ def run(client, store, vendor_items: dict, s: Settings, cfg: dict, now: int | No
     listings = client.auction_listings()
     aggs = {i: aggregate_listings(l) for i, l in listings.items()}
     aggs = {i: a for i, a in aggs.items() if a.min_price}
-    store.add_snapshot(now, aggs)
+    fresh = store.add_snapshot(now, aggs)
+    if not fresh:
+        res.warnings.append("Аукцион не изменился с прошлого запуска (Blizzard обновляет данные раз в час): новый снимок не записан.")
     progress(f"Лотов по {len(aggs)} предметам. Загружаю данные предметов…")
 
+    # кэшированные предметы берём все; новые запрашиваем в порядке «вендорные, затем дороже»
     cap = int(cfg.get("max_item_lookups", 1500))
-    by_qty = sorted(aggs, key=lambda i: -aggs[i].quantity)
-    wanted = list(vendor_items) + [i for i in by_qty if i not in vendor_items]
-    failed = _lookup_items(client, store, wanted[:cap])
+    cached = [i for i in aggs if i in vendor_items or store.get_item(i) is not None]
+    fresh_ids = sorted((i for i in aggs if i not in cached), key=lambda i: -aggs[i].min_price)
+    vendor_missing = [i for i in vendor_items if store.get_item(i) is None]
+    to_fetch = (vendor_missing + [i for i in fresh_ids if i not in vendor_missing])[:cap]
+    failed = _lookup_items(client, store, to_fetch)
     if failed:
         res.warnings.append(f"Не удалось получить данные у {failed} предметов (проверьте статический неймспейс).")
-    if len(wanted) > cap:
-        res.warnings.append(f"Проверено {cap} из {len(wanted)} предметов (лимит max_item_lookups).")
+    skipped = len(fresh_ids) + len(vendor_missing) - len(to_fetch)
+    if skipped > 0:
+        res.warnings.append(f"За один запуск запрошено {len(to_fetch)} новых предметов, ещё {skipped} будут запрошены в следующих запусках (лимит max_item_lookups).")
+    wanted = list(vendor_items) + [i for i in cached + to_fetch if i not in vendor_items]
+    wanted = list(dict.fromkeys(wanted))
 
     progress("Считаю выгоду…")
     cands = []
-    for item_id in wanted[:cap]:
+    classes = class_map(cfg)
+    looked = 0
+    for item_id in wanted:
         info = store.get_item(item_id) or {}
         v = vendor_items.get(item_id)
-        kind = _classify(info) if not v else ("vendor", "Перепродажа NPC")
+        looked += 1 if info else 0
+        kind = _classify(info, classes) if not v else ("vendor", "Перепродажа NPC")
         if kind is None:
             continue
         agg = aggs.get(item_id)
@@ -91,6 +109,7 @@ def run(client, store, vendor_items: dict, s: Settings, cfg: dict, now: int | No
             vendor_sell=vendor_sell, quantity=agg.quantity if agg else 0, n_auctions=agg.n_auctions if agg else 0,
             sales_per_day=rate, history_days=store.history_days(item_id, now - 14 * DAY),
             usual_price=usual_price(mins), stock=v.stock if v else None,
+            api_buy_price=info.get("purchase_price", 0),
             vendor_name=v.vendor if v else "", location=v.location if v else ""))
 
     ranked, rejected = rank(cands, s)
@@ -105,6 +124,9 @@ def run(client, store, vendor_items: dict, s: Settings, cfg: dict, now: int | No
                     max_history=max((c.history_days for c in cands), default=0),
                     realm=cfg.get("connected_realm_id"), house=cfg.get("auction_house_id"))
     res.sources = client.sources()
+    if looked and not any(c.group != "vendor" for c in cands):
+        res.warnings.append("Ни один предмет не распознан как рецепт или материал: проверьте ID классов "
+                            "(class_trade, class_recipe, trade_sub в config.json) для Forever.")
     if res.meta["max_history"] < 3:
         res.warnings.append("Истории меньше 3 дней: продажи в день и обычная цена пока оценочные.")
     progress("Готово.")

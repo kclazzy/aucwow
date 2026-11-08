@@ -43,7 +43,7 @@ class DemoClient:
     def fetch_item(self, item_id):
         for i, name, cls, sub, vsell, buy, *_ in ITEMS:
             if i == item_id:
-                return dict(name=name, class_id=cls, subclass_id=sub, purchase_price=buy, sell_price=vsell)
+                return dict(name="[демо] " + name, class_id=cls, subclass_id=sub, purchase_price=buy, sell_price=vsell)
         raise KeyError(item_id)
 
     def sources(self):

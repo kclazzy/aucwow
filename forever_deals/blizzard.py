@@ -17,10 +17,15 @@ class ApiError(Exception):
     pass
 
 
+RETRY_CODES = {429, 500, 502, 503, 504}
+MAX_RETRIES = 3
+
+
 class Client:
-    def __init__(self, cfg: dict, opener=urllib.request.urlopen):
+    def __init__(self, cfg: dict, opener=urllib.request.urlopen, sleep=time.sleep):
         self.cfg = cfg
         self._open = opener
+        self._sleep = sleep
         self._token = None
         self._token_until = 0.0
 
@@ -29,13 +34,21 @@ class Client:
         return f"https://{self.cfg['region']}.api.blizzard.com"
 
     def _request(self, req):
-        try:
-            with self._open(req, timeout=60) as resp:
-                return json.loads(resp.read().decode("utf-8"))
-        except urllib.error.HTTPError as exc:
-            raise ApiError(f"HTTP {exc.code} для {req.full_url.split('?')[0]}") from exc
-        except urllib.error.URLError as exc:
-            raise ApiError(f"нет связи: {exc.reason}") from exc
+        """Запрос с повтором при 429/5xx и обрывах сети (до MAX_RETRIES раз, пауза растёт)."""
+        for attempt in range(MAX_RETRIES + 1):
+            try:
+                with self._open(req, timeout=60) as resp:
+                    return json.loads(resp.read().decode("utf-8"))
+            except urllib.error.HTTPError as exc:
+                if exc.code in RETRY_CODES and attempt < MAX_RETRIES:
+                    self._sleep(float(exc.headers.get("Retry-After", 0) or 0) or 2 ** attempt)
+                    continue
+                raise ApiError(f"HTTP {exc.code} для {req.full_url.split('?')[0]}") from exc
+            except urllib.error.URLError as exc:
+                if attempt < MAX_RETRIES:
+                    self._sleep(2 ** attempt)
+                    continue
+                raise ApiError(f"нет связи: {exc.reason}") from exc
 
     def token(self):
         if self._token and time.time() < self._token_until:
@@ -75,7 +88,8 @@ class Client:
                 continue
         return found
 
-    def connected_realms(self, limit=60):
+    def connected_realms(self, limit=None):
+        limit = limit or int(self.cfg.get("realm_limit", 200))
         ns = self.cfg["dynamic_namespace"]
         index = self.get("/data/wow/connected-realm/index", ns)
         ids = [int(r["href"].split("/connected-realm/")[1].split("?")[0]) for r in index.get("connected_realms", [])][:limit]
@@ -119,6 +133,26 @@ class Client:
                 "subclass_id": d.get("item_subclass", {}).get("id"),
                 "purchase_price": int(d.get("purchase_price") or 0),
                 "sell_price": int(d.get("sell_price") or 0)}
+
+    def check(self):
+        """Проверка настроек по шагам -> [(ок, сообщение)]. Останавливается на первой ошибке."""
+        steps = []
+        try:
+            data = self.get(self.auction_path(), self.cfg["dynamic_namespace"])
+            auctions = data.get("auctions", [])
+            steps.append((True, f"Аукцион доступен, лотов: {len(auctions)}."))
+        except (ApiError, KeyError) as exc:
+            steps.append((False, f"Аукцион недоступен: {exc}. Проверьте ключи, неймспейс аукциона, ID реалма и аукциона."))
+            return steps
+        if not auctions:
+            steps.append((False, "Аукцион ответил, но лотов нет: проверьте ID аукциона."))
+            return steps
+        try:
+            info = self.fetch_item(auctions[0]["item"]["id"])
+            steps.append((True, f"Данные предметов доступны (пример: {info['name']}, класс {info['class_id']}/{info['subclass_id']})."))
+        except (ApiError, KeyError) as exc:
+            steps.append((False, f"Предметы недоступны: {exc}. Проверьте неймспейс предметов (static-…)."))
+        return steps
 
     def sources(self):
         return [("Аукцион (API Blizzard)", self.public_url(self.auction_path(), self.cfg["dynamic_namespace"]).split("&locale")[0]),

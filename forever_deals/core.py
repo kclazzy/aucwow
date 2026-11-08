@@ -39,6 +39,8 @@ class Settings:
     min_markup: float = 10.0     # для вендорных: наценка не меньше
     budget_item: int = 50000     # меди на позицию
     top_n: int = 10
+    min_quantity: int = 3        # меньше штук на аукционе = изолированный лот, цене не верим
+    sales_haircut: float = 0.7   # оценка по убыли лотов завышена (отмены, перевыставления): берём долю
 
 
 @dataclass
@@ -60,6 +62,7 @@ class Candidate:
     stock: Optional[int] = None  # остаток у вендора, None = без ограничения
     vendor_name: str = ""
     location: str = ""
+    api_buy_price: int = 0       # цена покупки из API предмета (не подтверждает, что предмет продаёт NPC)
 
 
 @dataclass
@@ -82,6 +85,9 @@ def evaluate(c: Candidate, s: Settings) -> Evaluation:
     if not c.min_price or c.quantity <= 0:
         e.rejects.append("нет лотов на аукционе")
         return e
+    real_purchase = c.buy_source == "vendor"
+    if not real_purchase and c.vendor_sell <= 0:
+        e.rejects.append("нет цены вендору: не с чем сравнивать")
     e.sell_price = min(c.min_price, c.usual_price) if c.usual_price else c.min_price
     deposit = s.deposit_pct * c.vendor_sell * (s.deposit_hours / 12)
     e.deposit_loss = deposit * (1 - s.p_sell)
@@ -92,19 +98,25 @@ def evaluate(c: Candidate, s: Settings) -> Evaluation:
         e.rate_used = s.min_rate
         e.flags.append("нет истории продаж")
     else:
-        e.rate_used = c.sales_per_day
+        e.rate_used = c.sales_per_day * s.sales_haircut
         if c.history_days < 3:
             e.flags.append("мало истории")
     if c.usual_price is None:
         e.flags.append("нет обычной цены")
+    if c.market_price and c.market_price > 2 * c.min_price:
+        e.flags.append("дно рынка тоньше рыночной цены")
+    if not real_purchase and c.api_buy_price and e.sell_price >= s.min_markup * c.api_buy_price:
+        e.flags.append(f"возможно продаётся NPC (API: {fmt_money(c.api_buy_price)}), проверьте")
     e.epd = e.rate_used * s.share * e.net
 
+    if c.quantity < s.min_quantity:
+        e.rejects.append(f"изолированный лот ({c.quantity} шт.): цене не верим")
     if e.net < s.min_net:
         e.rejects.append(f"мала прибыль ({fmt_money(e.net)} на шт.)")
-    if e.roi < s.min_roi:
+    if real_purchase and e.roi < s.min_roi:
         e.rejects.append(f"мала рентабельность (ROI {e.roi:.2f})")
-    if c.sales_per_day is not None and c.sales_per_day < s.min_rate:
-        e.rejects.append(f"тонкий рынок ({c.sales_per_day:.1f} шт/день)")
+    if c.sales_per_day is not None and e.rate_used < s.min_rate:
+        e.rejects.append(f"тонкий рынок ({e.rate_used:.1f} шт/день)")
     if c.group == "vendor" and e.markup < s.min_markup:
         e.rejects.append(f"наценка ×{e.markup:.1f} меньше ×{s.min_markup:g}")
 

@@ -3,7 +3,8 @@ from __future__ import annotations
 
 import csv
 import json
-from dataclasses import dataclass
+import re
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Optional
 
@@ -59,5 +60,42 @@ def import_file(path) -> tuple:
             v = _parse(row)
             items[v.item_id] = v
         except (KeyError, ValueError, TypeError) as exc:
+            errors.append(f"строка {n}: {exc}")
+    return items, errors
+
+
+def apply_purchase(items: dict, item_id: int, qty: int):
+    """Куплено qty штук: уменьшает остаток у вендора (если он ограничен)."""
+    v = items.get(item_id)
+    if v is not None and v.stock is not None:
+        items[item_id] = replace(v, stock=max(0, v.stock - qty))
+
+
+def _num(text: str, key: str):
+    m = re.search(rf"{key}=(\d+)", text)
+    if m:
+        return int(m.group(1))
+    return int(text) if text.strip().isdigit() else None
+
+
+def parse_text(text: str):
+    """Вставленный список: по строке на товар, поля через ';' (или tab):
+    предмет (ID или ссылка Wowhead) ; цена (8м, 1з 20с) ; вендор ; NPC (ID или ссылка) ; расположение ; остаток.
+    -> (items, errors)"""
+    from .core import parse_money
+    items, errors = {}, []
+    for n, line in enumerate(text.splitlines(), 1):
+        if not line.strip():
+            continue
+        f = [x.strip() for x in re.split(r"[;\t]", line)] + [""] * 6
+        try:
+            item_id = _num(f[0], "item")
+            if not item_id:
+                raise ValueError("не нашёл ID предмета")
+            row = dict(item_id=item_id, price=parse_money(f[1]), vendor=f[2], npc_id=_num(f[3], "npc") if f[3] else None,
+                       location=f[4], stock=f[5])
+            v = _parse(row)
+            items[v.item_id] = v
+        except (ValueError, TypeError, KeyError) as exc:
             errors.append(f"строка {n}: {exc}")
     return items, errors
