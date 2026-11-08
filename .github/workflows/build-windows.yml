@@ -6,6 +6,9 @@ on:
     branches: [main]
     paths: ["app.py", "forever_deals/**", "tests/**", ".github/workflows/build-windows.yml"]
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: windows-latest
@@ -36,3 +39,13 @@ jobs:
         with:
           name: ForeverDeals-windows
           path: ForeverDeals-windows.zip
+      - name: Публикация в Releases (тег windows-latest, перезаписывается)
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete windows-latest --cleanup-tag --yes
+          $global:LASTEXITCODE = 0
+          gh release create windows-latest ForeverDeals-windows.zip --target ${{ github.sha }} `
+            --title "Сборка для Windows (последний main)" `
+            --notes "ForeverDeals.exe собран из коммита ${{ github.sha }}. Тесты и запуск exe в демо-режиме пройдены на Windows."
