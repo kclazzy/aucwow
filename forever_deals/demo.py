@@ -19,7 +19,15 @@ ITEMS = [
     (900009, "Льняная ткань", 7, 5, 13, 0, 60, 90),
     (900010, "Рецепт: Огненный жезл", 9, 8, 100, 0, 7000, 2),
     (900011, "Серебряный кабан", 15, 0, 100, 0, 5000, 5),
+    (900012, "Медный слиток", 7, 7, 60, 0, 700, 20),
+    (900013, "Льняной холст", 7, 5, 30, 0, 260, 25),
+    (900014, "Простой меч", 2, 7, 80, 0, 80, 12),
+    (900015, "Пыль волшебства", 7, 12, 10, 0, 300, 30),
 ]
+EXTRA_INFO = {900014: dict(quality="UNCOMMON", level=10)}
+RECIPES_TEXT = ("900012;1;900006:2;Кузнечное дело;Медный слиток\n"
+                "900013;1;900009:3;Портняжное дело;Льняной холст")
+DE_RULES = [dict(classes=[2, 4], quality="UNCOMMON", ilvl_min=1, ilvl_max=15, results=[dict(item=900015, qty=1.0)])]
 VENDORS = {
     900001: VendorItem(900001, 8, "Стефани Тёрнер (демо)", "Штормград, Ремесленный квартал", None, 990001),
     900002: VendorItem(900002, 80, "Стефани Тёрнер (демо)", "Штормград, Ремесленный квартал", None, 990001),
@@ -43,7 +51,8 @@ class DemoClient:
     def fetch_item(self, item_id):
         for i, name, cls, sub, vsell, buy, *_ in ITEMS:
             if i == item_id:
-                return dict(name="[демо] " + name, class_id=cls, subclass_id=sub, purchase_price=buy, sell_price=vsell)
+                return dict(name="[демо] " + name, class_id=cls, subclass_id=sub, purchase_price=buy, sell_price=vsell,
+                            **EXTRA_INFO.get(item_id, {}))
         raise KeyError(item_id)
 
     def sources(self):

@@ -4,7 +4,7 @@ from __future__ import annotations
 import time
 from datetime import datetime
 
-from . import alerts, appdata, demo, pipeline, report, vendors
+from . import alerts, appdata, crafting, demo, disenchant, pipeline, report, vendors
 from .blizzard import Client
 from .store import Store
 
@@ -23,6 +23,18 @@ def run_search(h, cfg, progress=lambda m: None, digest=False):
         raise
 
 
+def load_user_tables(h, warnings: list):
+    """Рецепты и таблица дизенчанта пользователя. Битый файл не роняет запуск, а даёт предупреждение."""
+    out = []
+    for name, loader in (("recipes.json", crafting.load), ("disenchant.json", disenchant.load)):
+        try:
+            out.append(loader(h / name))
+        except (ValueError, KeyError, TypeError) as exc:
+            warnings.append(f"{name}: не удалось прочитать ({exc}); файл пропущен.")
+            out.append({} if name == "recipes.json" else [])
+    return out[0], out[1]
+
+
 def _run(h, cfg, progress):
     s = appdata.load_settings(cfg)
     items = demo.VENDORS if cfg.get("demo") else vendors.load(h / "vendors.json")
@@ -36,7 +48,13 @@ def _run(h, cfg, progress):
             raise RuntimeError("Не заполнены настройки Blizzard API (кнопка «Настройки»).")
         store = Store(h / "history.sqlite")
         client = Client(cfg)
-    res = pipeline.run(client, store, items, s, cfg, now=now, progress=progress)
+    warns = []
+    if cfg.get("demo"):
+        recipes, de_rules = crafting.parse_text(demo.RECIPES_TEXT)[0], demo.DE_RULES
+    else:
+        recipes, de_rules = load_user_tables(h, warns)
+    res = pipeline.run(client, store, items, s, cfg, now=now, progress=progress, recipes=recipes, de_rules=de_rules)
+    res.warnings += warns
     md = report.build_markdown(res, s, items, demo=bool(cfg.get("demo")), wowhead_base=cfg.get("wowhead_base"))
     path = h / "reports" / f"{datetime.fromtimestamp(now):%Y-%m-%d_%H%M}{'_demo' if cfg.get('demo') else ''}.md"
     path.write_text(md, encoding="utf-8")
