@@ -6,7 +6,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 
 from . import arbitrage, crafting, disenchant
-from .core import (DAY, Candidate, Settings, aggregate_listings, estimate_sales_per_day, rank, usual_price)
+from .core import (DAY, Candidate, Settings, aggregate_listings, estimate_sales_per_day, fmt_money, rank, usual_price)
 
 # ID классов предметов как в Retail; для Forever не подтверждены — меняются в config.json
 CLASS_TRADE, CLASS_RECIPE = 7, 9
@@ -58,6 +58,7 @@ class Result:
     names: dict = field(default_factory=dict)         # id -> название для крафта
     prices: dict = field(default_factory=dict)        # id -> Aggregate по всему аукциону
     notified: dict = field(default_factory=dict)      # итог отправки оповещений
+    vendor_check: dict = field(default_factory=dict)  # id -> итог сверки с Wowhead (продаётся ли у вендора)
 
 
 def _lookup_items(client, store, ids, workers=8):
@@ -122,8 +123,33 @@ def _extras(res, store, aggs, vendor_items, recipes, craft_ids, de_rules, s, now
         res.de_rows = disenchant.rows(items, aggs, de_rules, s)
 
 
+def _vendor_check(res, vendor_items, checker, now, progress):
+    """Сверка с Wowhead: можно ли купить позицию у вендора. Проверяются выгодные позиции, которых нет в вендорном списке
+    пользователя, лучшие по прибыли первыми; каждый предмет по одному разу (кэш в базе)."""
+    if checker is None:
+        return
+    todo = [e for e in res.ranked if e.cand.item_id not in vendor_items]
+    progress(f"Сверяю с Wowhead: продаются ли у вендоров ({len(todo)} позиций)…")
+    unchecked = 0
+    for e in todo:
+        r = checker.check(e.cand.item_id, now)
+        res.vendor_check[e.cand.item_id] = r
+        if r["status"] == "vendor":
+            v = r["vendors"][0]
+            price = f" за {fmt_money(v['price'])}" if v.get("price") else " (обмен/валюта)"
+            e.flags.append(f"у вендора: {v['name']}{price}")
+        elif r["status"] == "none":
+            e.flags.append("вендор: нет")
+        else:
+            e.flags.append("вендор: не проверено")
+            unchecked += 1
+    if unchecked:
+        res.warnings.append(f"Wowhead: не проверено {unchecked} позиций (нет связи, лимит запросов или страница Forever не распознана). "
+                            "Они будут проверены в следующих запусках.")
+
+
 def run(client, store, vendor_items: dict, s: Settings, cfg: dict, now: int | None = None, progress=lambda m: None,
-        recipes: dict | None = None, de_rules: list | None = None) -> Result:
+        recipes: dict | None = None, de_rules: list | None = None, checker=None) -> Result:
     recipes = recipes or {}
     now = int(now or time.time())
     res = Result()
@@ -193,6 +219,7 @@ def run(client, store, vendor_items: dict, s: Settings, cfg: dict, now: int | No
                     max_history=max((c.history_days for c in cands), default=0),
                     realm=cfg.get("connected_realm_id"), house=cfg.get("auction_house_id"))
     res.prices = aggs
+    _vendor_check(res, vendor_items, checker, now, progress)
     _compare_houses(res, client, store, aggs, s, cfg)
     _extras(res, store, aggs, vendor_items, recipes, craft_ids, de_rules, s, now)
     res.sources = client.sources()

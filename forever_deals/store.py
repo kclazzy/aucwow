@@ -20,8 +20,18 @@ class Store:
         CREATE INDEX IF NOT EXISTS snap_item ON snap(item_id, ts);
         CREATE TABLE IF NOT EXISTS item(item_id INTEGER PRIMARY KEY, data TEXT);
         CREATE TABLE IF NOT EXISTS meta(k TEXT PRIMARY KEY, v TEXT);
+        CREATE TABLE IF NOT EXISTS wh(item_id INTEGER PRIMARY KEY, ts INTEGER, data TEXT);
         CREATE TABLE IF NOT EXISTS trade(ts INTEGER, item_id INTEGER, kind TEXT, qty INTEGER, unit_price INTEGER);
         """)
+
+    def wh_get(self, item_id: int):
+        """Сохранённый результат сверки с Wowhead или None."""
+        row = self.db.execute("SELECT data FROM wh WHERE item_id=?", (item_id,)).fetchone()
+        return json.loads(row[0]) if row else None
+
+    def wh_put(self, item_id: int, data: dict, ts: int):
+        self.db.execute("INSERT OR REPLACE INTO wh VALUES(?,?,?)", (item_id, ts, json.dumps(data, ensure_ascii=False)))
+        self.db.commit()
 
     def add_snapshot(self, ts: int, aggs: dict) -> bool:
         """Пишет снимок, если данные изменились с прошлого (Blizzard обновляет аукцион раз в час). -> записан ли."""

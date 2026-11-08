@@ -74,3 +74,12 @@ def seed_history(store, now):
             listings = [(max(1, int(price * rnd.uniform(0.9, 1.4))), max(1, qty_total // n)) for _ in range(n)]
             rows[item_id] = aggregate_listings(listings)
         store.add_snapshot(ts, rows)
+
+
+class DemoChecker:
+    """Заглушка сверки с Wowhead для демо: одна позиция «продаётся у вендора», остальные нет."""
+
+    def check(self, item_id, now=None):
+        if item_id == 900009:
+            return {"status": "vendor", "vendors": [{"npc_id": 990009, "name": "Торговец тканями (демо)", "price": 45, "stock": None}]}
+        return {"status": "none", "vendors": []}

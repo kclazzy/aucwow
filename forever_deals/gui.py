@@ -609,6 +609,10 @@ class SettingsDialog(tk.Toplevel):
         for key, label, hint in self.ALERT:
             row(key, label, hint, str(app.cfg.get(key, "")), key == "telegram_token")
         row("drop_pct", "Оповещать о падении цены, %", "когда цена ниже обычной на столько процентов", vm.to_percent(app.cfg.get("drop_pct", 0.7)))
+        self.wh = tk.BooleanVar(value=bool(app.cfg.get("wowhead_check", True)))
+        ttk.Checkbutton(f, text="Сверять с Wowhead: продаётся ли позиция у вендора (один раз на предмет)", variable=self.wh).grid(
+            row=r, column=0, columnspan=2, sticky="w")
+        r += 1
         self.digest = tk.BooleanVar(value=bool(app.cfg.get("alert_digest", True)))
         self.hourly = tk.BooleanVar(value=bool(app.cfg.get("hourly_check", False)))
         ttk.Checkbutton(f, text="Присылать вечерний дайджест топ-3", variable=self.digest).grid(row=r, column=0, columnspan=2, sticky="w")
@@ -713,6 +717,7 @@ class SettingsDialog(tk.Toplevel):
         for k, *_ in self.ALERT:
             cfg[k] = self.vars[k].get().strip()
         cfg["alert_digest"], cfg["hourly_check"] = self.digest.get(), self.hourly.get()
+        cfg["wowhead_check"] = self.wh.get()
         cfg["demo"] = self.demo.get()
         appdata.save_cfg(self.app.h, cfg)
         self.app.base = cfg.get("wowhead_base")

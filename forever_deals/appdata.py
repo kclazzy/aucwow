@@ -20,7 +20,7 @@ DEFAULT_CFG = {
     "retry_minutes": 30, "keep_reports": 30, "realm_limit": 200,
     "house_cuts": {}, "github_token": "",
     "discord_webhook": "", "telegram_token": "", "telegram_chat_id": "",
-    "hourly_check": False, "compare_houses": [], "house_name": "Основной", "drop_pct": 0.7, "alert_digest": True,
+    "hourly_check": False, "wowhead_check": True, "wowhead_budget": 40, "compare_houses": [], "house_name": "Основной", "drop_pct": 0.7, "alert_digest": True,
 }
 
 

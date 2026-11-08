@@ -4,7 +4,7 @@ from __future__ import annotations
 import time
 from datetime import datetime
 
-from . import alerts, appdata, crafting, demo, disenchant, pipeline, report, vendors
+from . import alerts, appdata, crafting, demo, disenchant, pipeline, report, vendors, wowhead
 from .blizzard import Client
 from .store import Store
 
@@ -55,7 +55,14 @@ def _run(h, cfg, progress, mark=True):
         recipes, de_rules = load_user_tables(h, warns)
     if cfg.get("demo"):
         cfg = {**cfg, "compare_houses": [{"id": "2", "name": "Blackwater (демо)", "cut": 0.15}]}
-    res = pipeline.run(client, store, items, s, cfg, now=now, progress=progress, recipes=recipes, de_rules=de_rules)
+    checker = None
+    if cfg.get("demo"):
+        checker = demo.DemoChecker()
+    elif cfg.get("wowhead_check", True):
+        checker = wowhead.Checker(store, cfg.get("wowhead_base") or "https://www.wowhead.com/forever",
+                                  budget=int(cfg.get("wowhead_budget", 40)))
+    res = pipeline.run(client, store, items, s, cfg, now=now, progress=progress, recipes=recipes, de_rules=de_rules,
+                       checker=checker)
     res.warnings += warns
     md = report.build_markdown(res, s, items, demo=bool(cfg.get("demo")), wowhead_base=cfg.get("wowhead_base"))
     path = h / "reports" / f"{datetime.fromtimestamp(now):%Y-%m-%d_%H%M}{'_demo' if cfg.get('demo') else ''}.md"
