@@ -5,7 +5,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 
-from . import crafting, disenchant
+from . import arbitrage, crafting, disenchant
 from .core import (DAY, Candidate, Settings, aggregate_listings, estimate_sales_per_day, rank, usual_price)
 
 # ID классов предметов как в Retail; для Forever не подтверждены — меняются в config.json
@@ -54,6 +54,7 @@ class Result:
     sources: list = field(default_factory=list)
     craft_rows: list = field(default_factory=list)
     de_rows: list = field(default_factory=list)
+    arb_rows: list = field(default_factory=list)      # сравнение аукционов
     names: dict = field(default_factory=dict)         # id -> название для крафта
     prices: dict = field(default_factory=dict)        # id -> Aggregate по всему аукциону
     notified: dict = field(default_factory=dict)      # итог отправки оповещений
@@ -86,6 +87,27 @@ def _classify(info, classes):
     if info.get("class_id") == trade and info.get("subclass_id") in sub:
         return "material", sub[info["subclass_id"]]
     return None
+
+
+def _compare_houses(res, client, store, aggs, s, cfg):
+    houses = cfg.get("compare_houses") or []
+    if not houses:
+        return
+    primary = cfg.get("house_name") or "Основной"
+    books, cuts = {primary: aggs}, {primary: s.cut}
+    for h in houses:
+        try:
+            lots = client.auction_listings(house=h["id"])
+        except Exception as exc:          # один недоступный аукцион не должен ломать прогон
+            res.warnings.append(f"Не удалось загрузить аукцион «{h['name']}»: {exc}")
+            continue
+        books[h["name"]] = {i: a for i, l in lots.items() if (a := aggregate_listings(l)).min_price}
+        cuts[h["name"]] = h.get("cut", s.cut)
+    rows = arbitrage.rows(books, cuts, s)[:30]
+    _lookup_items(client, store, [r["item_id"] for r in rows])
+    for r in rows:
+        r["name"] = (store.get_item(r["item_id"]) or {}).get("name", f"#{r['item_id']}")
+    res.arb_rows = rows
 
 
 def _extras(res, store, aggs, vendor_items, recipes, craft_ids, de_rules, s, now):
@@ -171,6 +193,7 @@ def run(client, store, vendor_items: dict, s: Settings, cfg: dict, now: int | No
                     max_history=max((c.history_days for c in cands), default=0),
                     realm=cfg.get("connected_realm_id"), house=cfg.get("auction_house_id"))
     res.prices = aggs
+    _compare_houses(res, client, store, aggs, s, cfg)
     _extras(res, store, aggs, vendor_items, recipes, craft_ids, de_rules, s, now)
     res.sources = client.sources()
     if looked and not any(c.group != "vendor" for c in cands):

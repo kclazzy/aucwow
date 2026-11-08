@@ -40,12 +40,13 @@ VENDORS = {
 class DemoClient:
     cfg = {}
 
-    def auction_listings(self):
-        rnd = random.Random(7)
+    def auction_listings(self, house=None):
+        rnd = random.Random(7 if house is None else 11)
         out = {}
         for item_id, _, _, _, _, _, price, rate in ITEMS:
             n = max(3, rate // 3)
-            out[item_id] = [(max(1, int(price * rnd.uniform(0.9, 1.4))), rnd.randint(1, 40)) for _ in range(n)]
+            k = 1.0 if house is None else rnd.uniform(0.7, 2.2)
+            out[item_id] = [(max(1, int(price * k * rnd.uniform(0.9, 1.4))), rnd.randint(1, 40)) for _ in range(n)]
         return out
 
     def fetch_item(self, item_id):

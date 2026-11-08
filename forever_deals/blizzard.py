@@ -109,11 +109,11 @@ class Client:
         return [(h["id"], h.get("name", str(h["id"]))) for h in d.get("auctions", d.get("auction_houses", []))]
 
     # --- данные ---
-    def auction_path(self):
-        return self.cfg["auction_path"].format(realm=self.cfg["connected_realm_id"], house=self.cfg["auction_house_id"])
+    def auction_path(self, house=None):
+        return self.cfg["auction_path"].format(realm=self.cfg["connected_realm_id"], house=house or self.cfg["auction_house_id"])
 
-    def auction_listings(self) -> dict:
-        d = self.get(self.auction_path(), self.cfg["dynamic_namespace"])
+    def auction_listings(self, house=None) -> dict:
+        d = self.get(self.auction_path(house), self.cfg["dynamic_namespace"])
         out = {}
         for a in d.get("auctions", []):
             qty = int(a.get("quantity") or 0)

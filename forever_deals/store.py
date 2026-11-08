@@ -73,6 +73,17 @@ class Store:
         self.db.execute("INSERT INTO trade VALUES(?,?,?,?,?)", (ts, item_id, kind, qty, unit_price))
         self.db.commit()
 
+    def add_trades(self, trades) -> int:
+        """Массовый импорт сделок без дублей (повторный импорт того же файла ничего не добавляет). -> сколько добавлено."""
+        added = 0
+        for t in trades:
+            args = (t["ts"], t["item_id"], t["kind"], t["qty"], t["unit_price"])
+            if not self.db.execute("SELECT 1 FROM trade WHERE ts=? AND item_id=? AND kind=? AND qty=? AND unit_price=?", args).fetchone():
+                self.db.execute("INSERT INTO trade VALUES(?,?,?,?,?)", args)
+                added += 1
+        self.db.commit()
+        return added
+
     def trade_summary(self, cut: float = 0.05):
         """По предметам: куплено, продано, остаток, реализованная прибыль (продано по средней цене покупки)."""
         out = []

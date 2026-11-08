@@ -20,7 +20,7 @@ DEFAULT_CFG = {
     "retry_minutes": 30, "keep_reports": 30, "realm_limit": 200,
     "house_cuts": {}, "github_token": "",
     "discord_webhook": "", "telegram_token": "", "telegram_chat_id": "",
-    "hourly_check": False, "drop_pct": 0.7, "alert_digest": True,
+    "hourly_check": False, "compare_houses": [], "house_name": "Основной", "drop_pct": 0.7, "alert_digest": True,
 }
 
 
@@ -95,6 +95,25 @@ def mark_fail(h: Path, when: datetime, error: str):
     st = _state(h)
     st["failed_at"], st["error"] = when.isoformat(), error
     _save_state(h, st)
+
+
+def parse_houses(text: str):
+    """'2:Horde:5, 3:Blackwater:15' (ID : название : комиссия %) -> ([{id, name, cut}], ошибки)."""
+    houses, errors = [], []
+    for part in (p.strip() for p in text.split(",")):
+        if not part:
+            continue
+        f = [x.strip() for x in part.split(":")]
+        try:
+            if len(f) != 3 or not f[0].isdigit() or not f[1]:
+                raise ValueError
+            cut = float(f[2].replace(",", "."))
+            if not 0 <= cut <= 100:
+                raise ValueError
+            houses.append({"id": f[0], "name": f[1], "cut": cut / 100})
+        except ValueError:
+            errors.append(f"не понял «{part}» (нужно ID:название:комиссия%)")
+    return houses, errors
 
 
 def is_check_due(cfg: dict, h: Path, now: datetime) -> bool:
