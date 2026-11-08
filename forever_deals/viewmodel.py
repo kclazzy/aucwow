@@ -8,14 +8,14 @@ from .report import shopping_route
 
 TOP_COLS = ["#", "Товар", "Категория", "Закупка", "Продажа", "Чистыми/шт", "Наценка", "ROI",
             "Продаж/день", "Брать, шт", "Прибыль/день", "Метки"]
-TOP_WIDTHS = [30, 230, 140, 75, 85, 100, 70, 50, 105, 80, 115, 150]
+TOP_WIDTHS = [30, 220, 140, 75, 90, 105, 80, 55, 110, 90, 120, 150]
 VENDOR_COLS = ["Товар", "Вендор (NPC)", "Расположение", "Закупка", "Продажа", "Наценка", "Чистыми/шт",
                "Продаж/день", "Лотов", "Статус"]
 PROF_COLS = ["Товар", "Тип", "Закупка", "Продажа", "Чистыми/шт", "Продаж/день", "Прибыль/день", "Статус"]
 PROF_WIDTHS = [230, 130, 80, 90, 100, 90, 110, 300]
 ROUTE_COLS = ["Вендор / товар", "Кол-во", "Цена", "Сумма", "Прибыль"]
 ROUTE_WIDTHS = [520, 70, 90, 100, 100]
-VENDOR_WIDTHS = [190, 160, 240, 75, 90, 70, 90, 85, 55, 230]
+VENDOR_WIDTHS = [190, 150, 230, 80, 95, 85, 110, 110, 65, 200]
 
 
 def sort_key(text: str):
@@ -119,3 +119,12 @@ def profession_rows(res, items, name):
                      fmt_money(e.net) if has else "—", _rate(e), fmt_money(round(e.epd)) if not e.rejects else "—",
                      "✅ выгодно" if not e.rejects else "❌ " + "; ".join(e.rejects))))
     return out
+
+
+def row_tag(status: str, index: int) -> str:
+    """Тег раскраски строки: статус (✅/❌) важнее полос."""
+    if status.startswith("✅"):
+        return "ok"
+    if status.startswith("❌"):
+        return "bad"
+    return "odd" if index % 2 else "even"
