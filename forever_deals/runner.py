@@ -9,16 +9,16 @@ from .blizzard import Client
 from .store import Store
 
 
-def run_search(h, cfg, progress=lambda m: None, digest=False):
+def run_search(h, cfg, progress=lambda m: None, digest=False, mark=True):
     """-> (result, markdown, report_path, vendor_items). При сбое записывает его в состояние (повтор через retry_minutes)."""
     try:
-        result = _run(h, cfg, progress)
+        result = _run(h, cfg, progress, mark)
         if not cfg.get("demo"):
             res = result[0]
             res.notified = alerts.notify(h, cfg, res, appdata.load_settings(cfg), digest, today=datetime.now().date().isoformat())
         return result
     except Exception as exc:
-        if not cfg.get("demo"):
+        if mark and not cfg.get("demo"):
             appdata.mark_fail(h, datetime.now(), str(exc))
         raise
 
@@ -35,7 +35,7 @@ def load_user_tables(h, warnings: list):
     return out[0], out[1]
 
 
-def _run(h, cfg, progress):
+def _run(h, cfg, progress, mark=True):
     s = appdata.load_settings(cfg)
     items = demo.VENDORS if cfg.get("demo") else vendors.load(h / "vendors.json")
     now = int(time.time())
@@ -60,6 +60,6 @@ def _run(h, cfg, progress):
     path.write_text(md, encoding="utf-8")
     path.with_suffix(".html").write_text(report.markdown_to_html(md), encoding="utf-8")
     appdata.prune_reports(h, int(cfg.get("keep_reports", 30)))
-    if not cfg.get("demo"):
+    if mark and not cfg.get("demo"):
         appdata.mark_run(h, datetime.fromtimestamp(now))
     return res, md, path, items

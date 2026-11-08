@@ -47,6 +47,8 @@ class DemoClient:
             n = max(3, rate // 3)
             k = 1.0 if house is None else rnd.uniform(0.7, 2.2)
             out[item_id] = [(max(1, int(price * k * rnd.uniform(0.9, 1.4))), rnd.randint(1, 40)) for _ in range(n)]
+        if house is None:  # кто-то сбросил партию льняного холста втридёшева — пример «сброса рынка»
+            out[900013] += [(int(260 * 0.5), 6), (int(260 * 0.55), 4)]
         return out
 
     def fetch_item(self, item_id):

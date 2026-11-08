@@ -92,15 +92,15 @@ def build_markdown(res, s: Settings, vendor_items: dict, now=None, demo=False, w
         L.append("")
 
     L += [f"## Топ-{s.top_n}", "",
-          "| # | Товар | Категория | Закупка | Продажа | Чистыми/шт | Наценка | ROI | Продаж/день | Брать, шт | Прибыль/день | Метки |",
-          "|---|---|---|---|---|---|---|---|---|---|---|---|"]
+          "| # | Товар | Категория | Закупка | Продажа | Чистыми/шт | Наценка | ROI | Продаж/день | Запас, дн. | Брать, шт | Выставлять по | Прибыль/день | Метки |",
+          "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
     for n, e in enumerate(res.top, 1):
         c = e.cand
         L.append(f"| {n} | {md_link(c.name, item_url(c.item_id, base))} | {c.category} | {fmt_money(c.buy_price)} | "
-                 f"{fmt_money(e.sell_price)} | {fmt_money(e.net)} | ×{e.markup:.1f} | {_roi(e)} | {_rate(e)} | {e.qty} | "
-                 f"{fmt_money(round(e.epd))} | {'; '.join(e.flags) or '—'} |")
+                 f"{fmt_money(e.sell_price)} | {fmt_money(e.net)} | ×{e.markup:.1f} | {_roi(e)} | {_rate(e)} | "
+                 f"{'н/д' if e.stock_days is None else '%.1f' % e.stock_days} | {e.qty} | {fmt_money(e.list_price)} | {fmt_money(round(e.epd))} | {'; '.join(e.flags) or '—'} |")
     if not res.top:
-        L.append("| — | Нет позиций, прошедших фильтры | | | | | | | | | | |")
+        L.append("| — | Нет позиций, прошедших фильтры | | | | | | | | | | | | |")
     L.append("")
 
     L += ["## Вендор → аукцион", "",

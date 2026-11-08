@@ -7,8 +7,18 @@ from .core import fmt_money, parse_money
 from .report import shopping_route
 
 TOP_COLS = ["#", "Товар", "Категория", "Закупка", "Продажа", "Чистыми/шт", "Наценка", "ROI",
-            "Продаж/день", "Брать, шт", "Прибыль/день", "Метки"]
-TOP_WIDTHS = [30, 220, 140, 75, 90, 105, 80, 55, 110, 90, 120, 150]
+            "Продаж/день", "Запас, дн.", "Брать, шт", "Выставлять по", "Прибыль/день", "Метки"]
+TOP_WIDTHS = [30, 200, 120, 75, 90, 100, 75, 50, 95, 80, 80, 100, 110, 110]
+SHORT_COLS = ["Товар", "Профессия", "Лотов, шт.", "Продаж/день", "Запас, дн.", "Цена сейчас", "Выставлять по"]
+SHORT_WIDTHS = [260, 140, 90, 100, 90, 110, 120]
+RESET_COLS = ["Товар", "Выкупить, шт.", "Затраты", "Перевыставить по", "Прибыль", "Дней на продажу"]
+RESET_WIDTHS = [260, 110, 110, 140, 120, 130]
+CRAFT_COLS = ["Изделие", "Профессия", "Реагенты", "Себестоимость", "Выручка", "Прибыль", "ROI", "Примечание"]
+CRAFT_WIDTHS = [190, 120, 260, 100, 90, 100, 60, 210]
+DE_COLS = ["Предмет", "Цена покупки", "Ценность дизенчанта", "Прибыль"]
+DE_WIDTHS = [300, 130, 170, 130]
+ARB_COLS = ["Товар", "Купить на", "Цена", "Продать на", "Цена", "Чистыми/шт", "Брать, шт.", "Прибыль"]
+ARB_WIDTHS = [220, 130, 90, 130, 90, 100, 90, 110]
 VENDOR_COLS = ["Товар", "Вендор (NPC)", "Расположение", "Закупка", "Продажа", "Наценка", "Чистыми/шт",
                "Продаж/день", "Лотов", "Статус"]
 PROF_COLS = ["Товар", "Тип", "Закупка", "Продажа", "Чистыми/шт", "Продаж/день", "Прибыль/день", "Статус"]
@@ -61,6 +71,10 @@ def _rate(e):
     return "н/д" if e.cand.sales_per_day is None else f"{e.cand.sales_per_day * 1:.1f}"
 
 
+def _days(e):
+    return "н/д" if e.stock_days is None else f"{e.stock_days:.1f}"
+
+
 def top_rows(res, items):
     out = []
     for n, e in enumerate(res.top, 1):
@@ -69,7 +83,8 @@ def top_rows(res, items):
         roi = f"{e.roi:.1f}" if c.buy_source == "vendor" else "—"
         out.append(((c.item_id, v.npc_id if v else None),
                     (n, c.name, c.category, fmt_money(c.buy_price), fmt_money(e.sell_price), fmt_money(e.net),
-                     f"×{e.markup:.1f}", roi, _rate(e), e.qty, fmt_money(round(e.epd)), "; ".join(e.flags) or "—")))
+                     f"×{e.markup:.1f}", roi, _rate(e), _days(e), e.qty, fmt_money(e.list_price), fmt_money(round(e.epd)),
+                     "; ".join(e.flags) or "—")))
     return out
 
 
@@ -146,3 +161,42 @@ def line_points(values, width: int, height: int, pad: int = 12):
         y = height / 2 if hi == lo else height - pad - (height - 2 * pad) * (v - lo) / (hi - lo)
         out.append((int(round(x)), int(round(y))))
     return out
+
+
+def shortage_table(res):
+    from . import analytics
+    return [((e.cand.item_id, None), (e.cand.name, e.cand.profession, e.cand.quantity, _rate(e), _days(e),
+                                      fmt_money(e.cand.min_price), fmt_money(e.list_price)))
+            for e in analytics.shortage_rows(res)]
+
+
+def reset_table(res, s):
+    from . import analytics
+    return [((r["item_id"], None), (r["name"], r["units"], fmt_money(r["cost"]), fmt_money(r["target"]), fmt_money(r["profit"]),
+                                    "н/д" if r["days_to_sell"] is None else f"{r['days_to_sell']:.1f}"))
+            for r in analytics.reset_rows(res, s)]
+
+
+def craft_table(res):
+    out = []
+    for row in res.craft_rows:
+        r = row.recipe
+        name = res.names.get(r.product) or r.name or f"#{r.product}"
+        reagents = ", ".join(f"{res.names.get(i, f'#{i}')} ×{q}" for i, q in r.reagents)
+        note = "нет цены: " + ", ".join(res.names.get(i, f"#{i}") for i in row.unknown) if row.unknown else "—"
+        out.append(((r.product, None), (name, r.profession, reagents, fmt_money(row.cost),
+                                        fmt_money(row.revenue) if row.profit is not None else "—",
+                                        fmt_money(row.profit) if row.profit is not None else "—",
+                                        f"{row.roi:.1f}" if row.roi is not None else "—", note)))
+    return out
+
+
+def de_table(res):
+    return [((r["item_id"], None), (r["name"], fmt_money(r["buy"]), fmt_money(r["value"]), fmt_money(r["profit"])))
+            for r in res.de_rows]
+
+
+def arb_table(res):
+    return [((r["item_id"], None), (r["name"], r["buy_house"], fmt_money(r["buy"]), r["sell_house"], fmt_money(r["sell"]),
+                                    fmt_money(r["net"]), r["qty"], fmt_money(r["profit"])))
+            for r in res.arb_rows]
