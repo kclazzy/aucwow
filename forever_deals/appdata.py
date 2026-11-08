@@ -18,7 +18,7 @@ DEFAULT_CFG = {
     "max_item_lookups": 1500, "run_time": "20:00", "demo": False,
     "wowhead_base": "https://www.wowhead.com/forever",
     "retry_minutes": 30, "keep_reports": 30, "realm_limit": 200,
-    "house_cuts": {},
+    "house_cuts": {}, "github_token": "",
 }
 
 
