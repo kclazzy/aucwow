@@ -13,7 +13,7 @@ from pathlib import Path
 from .core import parse_money
 from .vendors import VendorItem
 
-UA = "ForeverDeals/1.0 (личное приложение, одна загрузка страницы за запуск)"
+UA = "ForeverDeals/1.0 (personal desktop app; one page load per run)"
 VENDOR_NAME = "по данным сайта"
 
 

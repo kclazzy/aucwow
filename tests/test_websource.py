@@ -147,3 +147,34 @@ class ConfiguredTest(unittest.TestCase):
         self.assertTrue(appdata.configured({"source": "web", "web_source_url": "https://x/p"}))
         self.assertTrue(appdata.configured({"source": "web", "web_source_file": "C:/p.html"}))
         self.assertFalse(appdata.configured({"source": "blizzard"}))
+
+
+class HeaderTest(unittest.TestCase):
+    def test_all_user_agents_are_latin1_encodable(self):
+        """HTTP-заголовки кодируются в latin-1: кириллица в User-Agent роняла запрос на Windows."""
+        from forever_deals import updater, selfupdate, wowhead
+        for ua in (websource.UA, wowhead.UA):
+            ua.encode("latin-1")
+        seen = []
+
+        class R:
+            def read(s): return HTML.encode()
+            def __enter__(s): return s
+            def __exit__(s, *a): return False
+        websource.WebClient({"web_source_url": "https://x/p"}, opener=lambda req, timeout=0: (seen.append(req), R())[1]).load()
+        for k, v in seen[0].header_items():
+            f"{k}: {v}".encode("latin-1")
+
+    def test_wowhead_request_headers_are_latin1(self):
+        from forever_deals import wowhead
+        from forever_deals.store import Store
+        seen = []
+
+        class R:
+            def read(s): return b"x"
+            def __enter__(s): return s
+            def __exit__(s, *a): return False
+        wowhead.Checker(Store(":memory:"), "https://x", opener=lambda req, timeout=0: (seen.append(req), R())[1],
+                        sleep=lambda s: None).check(1)
+        for k, v in seen[0].header_items():
+            f"{k}: {v}".encode("latin-1")

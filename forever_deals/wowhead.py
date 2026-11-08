@@ -9,7 +9,7 @@ import re
 import time
 import urllib.request
 
-UA = "ForeverDeals/1.0 (личное приложение, один запрос на предмет)"
+UA = "ForeverDeals/1.0 (personal desktop app; one request per item)"
 
 
 def _array_after(text: str, start: int):
