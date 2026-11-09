@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0f1419">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<title>WoW Forever — аукцион</title>
+<style>
+  :root { --bg:#0f1419; --card:#18202a; --line:#2a3542; --text:#e6edf3; --muted:#8b98a5; --accent:#e0a526; --ok:#3fb950; --bad:#f85149; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:15px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+         padding-bottom:env(safe-area-inset-bottom); }
+  header { position:sticky; top:0; z-index:5; background:var(--bg); padding:10px 12px 0; border-bottom:1px solid var(--line); }
+  .top { display:flex; align-items:center; gap:8px; }
+  h1 { font-size:17px; margin:0; flex:1; }
+  .badge { background:var(--accent); color:#111; border-radius:10px; padding:1px 8px; font-size:12px; font-weight:700; }
+  button, select, input[type=search] { font:inherit; color:var(--text); background:var(--card); border:1px solid var(--line); border-radius:10px; padding:8px 10px; }
+  button { cursor:pointer; }
+  .meta { color:var(--muted); font-size:12.5px; margin:4px 0 8px; }
+  .tabs { display:flex; gap:6px; overflow-x:auto; padding-bottom:10px; scrollbar-width:none; }
+  .tabs button { white-space:nowrap; flex:none; }
+  .tabs button.on { background:var(--accent); color:#111; border-color:var(--accent); font-weight:700; }
+  .tools { display:flex; gap:8px; padding:10px 12px 0; flex-wrap:wrap; }
+  .tools input { flex:1 1 150px; min-width:0; }
+  .chips { display:flex; gap:6px; overflow-x:auto; padding:8px 12px 0; scrollbar-width:none; }
+  .chips button { white-space:nowrap; flex:none; padding:4px 10px; font-size:13px; border-radius:14px; }
+  .chips button.on { border-color:var(--accent); color:var(--accent); }
+  .note, .warn { margin:10px 12px 0; padding:8px 10px; border-radius:10px; font-size:13px; }
+  .note { color:var(--muted); background:var(--card); }
+  .warn { background:#2b2412; border:1px solid #5b4a14; color:#f0d58a; }
+  .count { color:var(--muted); font-size:12.5px; padding:8px 12px 0; }
+  main { padding:8px 12px 24px; display:grid; gap:10px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:10px 12px; }
+  .card h2 { margin:0 0 6px; font-size:15.5px; }
+  .card h2 a { color:var(--text); text-decoration:none; border-bottom:1px dotted var(--muted); }
+  .grid { display:grid; grid-template-columns:1fr 1fr; gap:4px 12px; }
+  .kv small { display:block; color:var(--muted); font-size:11.5px; }
+  .kv.wide { grid-column:1 / -1; }
+  .kv.good span { color:var(--ok); } .kv.badv span { color:var(--bad); }
+  .empty { color:var(--muted); text-align:center; padding:40px 12px; }
+  @media (min-width:700px) { main { grid-template-columns:repeat(auto-fill,minmax(340px,1fr)); } }
+</style>
+</head>
+<body>
+<header>
+  <div class="top"><h1>WoW Forever · аукцион</h1><span id="demo" class="badge" hidden>ДЕМО</span><button id="reload" title="Обновить">⟳</button></div>
+  <div class="meta" id="meta">Загрузка…</div>
+  <nav class="tabs" id="tabs"></nav>
+</header>
+<div id="warnings"></div>
+<div class="tools">
+  <input id="q" type="search" placeholder="Поиск по названию, категории…" autocomplete="off">
+  <select id="sortcol" aria-label="Сортировка"></select>
+  <button id="dir" title="Направление">↓</button>
+</div>
+<div class="chips" id="chips"></div>
+<div id="hint"></div>
+<div class="count" id="count"></div>
+<main id="list"></main>
+<script src="logic.js"></script>
+<script>
+(function () {
+  "use strict";
+  var data = null, tab = null, cat = "Все", desc = true, col = -1;
+  var $ = function (id) { return document.getElementById(id); };
+  function el(tag, cls, text) { var e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
+  function tabById(id) { return data.tabs.filter(function (t) { return t.id === id; })[0]; }
+  function titleCol(t) { return t.id === "top" ? 1 : 0; }
+
+  function load() {
+    $("meta").textContent = "Загрузка…";
+    fetch("data.json", { cache: "no-store" }).then(function (r) {
+      return r.json().then(function (j) { if (!r.ok) throw new Error(j.error || r.status); return j; });
+    }).then(setData).catch(function (e) {
+      $("meta").textContent = "";
+      var box = el("div", "empty");
+      box.appendChild(el("p", null, "Не удалось получить данные: " + e.message));
+      var f = el("input"); f.type = "file"; f.accept = ".json,application/json";
+      f.onchange = function () {
+        var rd = new FileReader();
+        rd.onload = function () { try { setData(JSON.parse(rd.result)); } catch (x) { alert("Это не файл mobile.json"); } };
+        rd.readAsText(f.files[0]);
+      };
+      box.appendChild(el("p", null, "Или откройте файл mobile.json, присланный с компьютера:"));
+      box.appendChild(f);
+      $("list").replaceChildren(box); $("count").textContent = "";
+    });
+  }
+
+  function setData(j) {
+    data = j;
+    $("demo").hidden = !j.demo;
+    $("meta").textContent = "Обновлено " + j.generated + " · источник: " + j.source;
+    var w = $("warnings"); w.replaceChildren();
+    (j.warnings || []).slice(0, 6).forEach(function (m) { w.appendChild(el("div", "warn", "⚠ " + m)); });
+    var keep = tab && tabById(tab.id);
+    tab = keep || j.tabs[0]; cat = "Все"; col = -1;
+    buildTabs(); buildTools(); render();
+  }
+
+  function buildTabs() {
+    var nav = $("tabs"); nav.replaceChildren();
+    data.tabs.forEach(function (t) {
+      var b = el("button", t === tab ? "on" : "", t.title + " (" + t.rows.length + ")");
+      b.onclick = function () { tab = t; cat = "Все"; col = -1; buildTabs(); buildTools(); render(); };
+      nav.appendChild(b);
+    });
+  }
+
+  function buildTools() {
+    var s = $("sortcol"); s.replaceChildren();
+    s.appendChild(el("option", null, "Сортировка: по умолчанию")).value = "-1";
+    tab.cols.forEach(function (c, i) { s.appendChild(el("option", null, c)).value = String(i); });
+    s.value = String(col);
+    $("dir").textContent = desc ? "↓" : "↑";
+    var h = $("hint"); h.replaceChildren();
+    if (tab.hint) h.appendChild(el("div", "note", tab.hint));
+    var chips = $("chips"); chips.replaceChildren();
+    if (tab.cat != null) {
+      [["Все", tab.rows.length]].concat(FD.categoriesOf(tab.rows, tab.cat)).forEach(function (c) {
+        var b = el("button", c[0] === cat ? "on" : "", c[0] + " " + c[1]);
+        b.onclick = function () { cat = c[0]; buildTools(); render(); };
+        chips.appendChild(b);
+      });
+    }
+  }
+
+  function render() {
+    var rows = tab.rows;
+    if (tab.cat != null && cat !== "All" && cat !== "Все") rows = rows.filter(function (r) { return r.v[tab.cat] === cat; });
+    rows = FD.filterRows(rows, $("q").value);
+    if (col >= 0) rows = FD.sortRows(rows, col, desc);
+    $("count").textContent = "Показано: " + rows.length + " из " + tab.rows.length;
+    var list = $("list"); list.replaceChildren();
+    if (!rows.length) { list.appendChild(el("div", "empty", tab.rows.length ? "Ничего не найдено" : "В этой вкладке пока нет данных")); return; }
+    var frag = document.createDocumentFragment(), tc = titleCol(tab);
+    rows.slice(0, 300).forEach(function (r) {
+      var card = el("div", "card"), h2 = el("h2");
+      var a = el("a", null, r.v[tc]); a.href = r.url; a.target = "_blank"; a.rel = "noopener noreferrer"; h2.appendChild(a);
+      card.appendChild(h2);
+      var g = el("div", "grid");
+      tab.cols.forEach(function (c, i) {
+        if (i === tc || (tab.id === "top" && i === 0)) return;
+        var v = r.v[i], kv = el("div", "kv" + (String(v).length > 28 ? " wide" : ""));
+        if (v.indexOf("✅") === 0) kv.className += " good"; else if (v.indexOf("❌") === 0) kv.className += " badv";
+        kv.appendChild(el("small", null, c)); kv.appendChild(el("span", null, v)); g.appendChild(kv);
+      });
+      card.appendChild(g); frag.appendChild(card);
+    });
+    list.appendChild(frag);
+    if (rows.length > 300) list.appendChild(el("div", "empty", "Показаны первые 300: уточните поиск"));
+  }
+
+  $("q").oninput = render;
+  $("sortcol").onchange = function () { col = parseInt(this.value, 10); render(); };
+  $("dir").onclick = function () { desc = !desc; this.textContent = desc ? "↓" : "↑"; render(); };
+  $("reload").onclick = load;
+  document.addEventListener("visibilitychange", function () { if (!document.hidden && data) load(); });
+  load();
+})();
+</script>
+</body>
+</html>
