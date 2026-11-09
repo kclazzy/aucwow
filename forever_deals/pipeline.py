@@ -60,6 +60,7 @@ class Result:
     prices: dict = field(default_factory=dict)        # id -> Aggregate по всему аукциону
     notified: dict = field(default_factory=dict)      # итог отправки оповещений
     vendor_extra: dict = field(default_factory=dict)  # id -> VendorItem, найденные через Wowhead
+    faction_rows: list = field(default_factory=list)  # сравнение цен фракций без порогов (источник-страница сравнения)
     catalog: list = field(default_factory=list)       # все просканированные предметы с категориями и признаком вендора
     vendor_check: dict = field(default_factory=dict)  # id -> итог сверки с Wowhead (продаётся ли у вендора)
 

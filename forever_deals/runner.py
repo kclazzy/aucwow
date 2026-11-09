@@ -49,6 +49,24 @@ def _add_faction_only(res, client):
     res.catalog.sort(key=lambda r: r["name"])
 
 
+def _faction_rows(res, client, cut):
+    """Каждый предмет со страницы сравнения: цены фракций, где дешевле, разница и чистая прибыль с штуки после комиссии.
+    Без порогов выгоды: это справочная таблица, а отбор по порогам остаётся во вкладке «Аукционы»."""
+    out = []
+    for r in client.rows:
+        prices = r.get("factions") or {}
+        if not prices:
+            continue
+        lo_f, hi_f = min(prices, key=prices.get), max(prices, key=prices.get)
+        lo, hi = prices[lo_f], prices[hi_f]
+        both = len(prices) > 1 and hi > lo
+        out.append(dict(item_id=r["item_id"], name=r["name"], category=r["category"] or "Прочее", prices=prices,
+                        cheap=lo_f if both else None, dear=hi_f if both else None,
+                        diff=(hi - lo) / lo if both else None, net=int(hi * (1 - cut) - lo) if both else None))
+    out.sort(key=lambda r: (r["diff"] is None, -(r["diff"] or 0), r["item_id"]))
+    res.faction_rows = out
+
+
 def _run(h, cfg, progress, mark=True):
     s = appdata.load_settings(cfg)
     items = demo.VENDORS if cfg.get("demo") else vendors.load(h / "vendors.json")
@@ -88,6 +106,7 @@ def _run(h, cfg, progress, mark=True):
         res.warnings += warns
         if cfg.get("source") == "web" and client.faction_mode():
             _add_faction_only(res, client)
+            _faction_rows(res, client, s.cut)
         items = {**res.vendor_extra, **items}                  # вендорные позиции, найденные через Wowhead
         if cfg.get("source") == "web" and not cfg.get("demo"):
             res.warnings += client.warnings()

@@ -387,7 +387,7 @@ class WebClient:
                     names.append(f)
         want = (self.cfg.get("web_faction") or "").strip()
         if not want:
-            m = re.search(r"[?&]faction=([^&#]+)", self.cfg.get("web_source_url", "") or "")
+            m = re.search(r"[?&](?:faction|pov)=([^&#]+)", self.cfg.get("web_source_url", "") or "")
             want = m.group(1) if m else ""
         return next((n for n in names if n.lower() == want.lower() or _faction_of(want) == n), names[0] if names else "")
 

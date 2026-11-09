@@ -150,3 +150,44 @@ class FactionTableTest(unittest.TestCase):
         self.assertGreater(top["net"], 0)
         self.assertEqual({r["item_id"] for r in res.catalog}, {2589, 2320, 4306})
         self.assertTrue(any("количество" in w for w in res.warnings))
+
+
+class PovAndFactionTableTest(unittest.TestCase):
+    def client(self, url):
+        c = websource.WebClient({"web_source_url": url})
+        c.rows = websource.parse_html(FACTION_PAGE)
+        return c
+
+    def test_pov_parameter_selects_primary_faction(self):
+        self.assertEqual(self.client("https://x/forever/ah?pov=horde").primary(), "Horde")
+        self.assertEqual(self.client("https://x/forever/ah?pov=alliance").primary(), "Alliance")
+        self.assertEqual(self.client("https://x/forever/ah?region=eu&pov=horde&x=1").primary(), "Horde")
+
+    def test_faction_rows_have_no_thresholds_and_sorted_by_difference(self):
+        from forever_deals import viewmodel as vm
+        d = tempfile.TemporaryDirectory()
+        self.addCleanup(d.cleanup)
+        h = Path(d.name)
+        (h / "p.html").write_text(FACTION_PAGE, encoding="utf-8")
+        cfg = {**appdata.DEFAULT_CFG, "source": "web", "web_source_file": str(h / "p.html"), "wowhead_check": False,
+               "settings": {"min_roi": 50.0, "min_net": 10 ** 9}}                    # пороги арбитража недостижимы, а сравнение всё равно есть
+        res, *_ = runner.run_search(h, cfg)
+        self.assertEqual(res.arb_rows, [])
+        self.assertEqual(vm.faction_cols(res)[2:4], ["Alliance", "Horde"])
+        table = vm.faction_table(res)
+        self.assertEqual([ids[0] for ids, _ in table], [2589, 2320, 4306])     # 166%, 25%, цена только у одной фракции — последняя
+        for ids, vals in table:
+            self.assertEqual(len(vals), len(vm.faction_cols(res)))
+        top = dict(zip(vm.faction_cols(res), table[0][1]))
+        self.assertEqual(top["Дешевле у"], "Alliance")
+        self.assertEqual(top["Разница"], "+167%")
+
+    def test_summary_mentions_faction_comparison_when_top_is_empty(self):
+        from forever_deals import viewmodel as vm
+        d = tempfile.TemporaryDirectory()
+        self.addCleanup(d.cleanup)
+        h = Path(d.name)
+        (h / "p.html").write_text(FACTION_PAGE, encoding="utf-8")
+        cfg = {**appdata.DEFAULT_CFG, "source": "web", "web_source_file": str(h / "p.html"), "wowhead_check": False}
+        res, *_ = runner.run_search(h, cfg)
+        self.assertIn("между фракциями", vm.summary_line(res))

@@ -232,3 +232,27 @@ def possible_table(res):
     """Предметы, которые, возможно, продаются у вендора (подтверждения цены в монетах пока нет)."""
     return [((r["item_id"], None), (r["name"], r["category"], fmt_money(r["market"] or r["min"] or 0), r["note"]))
             for r in res.catalog if r["vendor"] == "возможно"]
+
+
+def faction_cols(res):
+    names = sorted({f for r in res.faction_rows for f in r["prices"]})
+    return ["Товар", "Категория"] + names + ["Дешевле у", "Разница", "Чистыми/шт"]
+
+
+def faction_table(res):
+    """Сравнение фракций: цены, где дешевле, разница в процентах и прибыль с штуки (купить дешевле, продать дороже)."""
+    names = sorted({f for r in res.faction_rows for f in r["prices"]})
+    out = []
+    for r in res.faction_rows:
+        out.append(((r["item_id"], None), (r["name"], r["category"], *[fmt_money(r["prices"][n]) if n in r["prices"] else "—" for n in names],
+                                           r["cheap"] or "—", f"+{r['diff'] * 100:.0f}%" if r["diff"] is not None else "—",
+                                           fmt_money(r["net"]) if r["net"] is not None and r["net"] > 0 else "—")))
+    return out
+
+
+def summary_line(res):
+    """Итог запуска одной строкой для строки состояния."""
+    text = f"{len(res.top)} позиций в топе"
+    if res.faction_rows:
+        text += f", {len(res.faction_rows)} предметов в сравнении между фракциями (вкладка «Фракции»), выгодных по порогам: {len(res.arb_rows)}"
+    return text

@@ -233,7 +233,7 @@ class App(tk.Tk):
         self._refresh_sched()
         warn = f" Предупреждения: {len(res.warnings)} (см. вкладку «Отчёт»)." if res.warnings else ""
         self.status.config(foreground=theme.P["ok"],
-                           text=f"✔ Готово: {len(res.top)} позиций в топе, отчёт сохранён: {path}.{warn}")
+                           text=f"✔ Готово: {vm.summary_line(res)}. Отчёт сохранён: {path}.{warn}")
         if self.auto:                                      # автозапуск: привлекаем внимание, не блокируя работу
             self.bell()
             self.deiconify()
@@ -419,6 +419,11 @@ class App(tk.Tk):
         self._dash_table("Дизенчант", vm.DE_COLS, vm.DE_WIDTHS, vm.de_table(res),
                          f"Нет данных. Положите файл disenchant.json в папку {self.h} (образец: disenchant_template.json в репозитории). "
                          "Шансы выпадения в API нет — берите из таблицы, которой доверяете.")
+        if self.res.faction_rows:
+            cols = vm.faction_cols(self.res)
+            self._dash_table("Фракции", cols, [240, 120] + [100] * (len(cols) - 5) + [100, 90, 110], vm.faction_table(self.res),
+                             "Все предметы страницы сравнения: цена у каждой фракции, где дешевле, разница и прибыль с штуки "
+                             "(купить дешевле, продать дороже, комиссия учтена). Без порогов: отбор по порогам во вкладке «Аукционы».")
         self._dash_table("Аукционы", vm.ARB_COLS, vm.ARB_WIDTHS, vm.arb_table(res),
                          "Сравнение нескольких аукционов не настроено. В «Настройках» укажите соседний аукцион (ID:название:комиссия%) "
                          "— здесь появятся товары, которые выгодно купить на одном и продать на другом.")
