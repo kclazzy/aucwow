@@ -102,7 +102,7 @@ class ServerTest(unittest.TestCase):
 @unittest.skipUnless(shutil.which("node"), "нет node")
 class PageLogicTest(unittest.TestCase):
     def test_js_logic(self):
-        r = subprocess.run(["node", "--test", str(ROOT / "tests" / "mobile_logic.test.mjs")], capture_output=True, text=True)
+        r = subprocess.run(["node", "--test", str(ROOT / "tests" / "mobile_logic.test.mjs")], capture_output=True, text=True, encoding="utf-8", errors="replace")
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
 
 
@@ -118,7 +118,7 @@ class PageRenderTest(unittest.TestCase):
         srv = mobile_server.MobileServer(home, "tok", port=0, host="127.0.0.1").start()
         self.addCleanup(srv.stop)
         r = subprocess.run(["google-chrome", "--headless=new", "--no-sandbox", "--disable-gpu", "--virtual-time-budget=4000",
-                            "--dump-dom", f"http://127.0.0.1:{srv.port}/tok/"], capture_output=True, text=True, timeout=90)
+                            "--dump-dom", f"http://127.0.0.1:{srv.port}/tok/"], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=90)
         return r.stdout
 
     def test_demo_data_renders_cards_and_tabs(self):
