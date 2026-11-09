@@ -5,6 +5,7 @@ import os
 import queue
 import re
 import subprocess
+import shutil
 import sys
 import threading
 import time
@@ -15,8 +16,8 @@ from tkinter import filedialog, messagebox, ttk
 
 from pathlib import Path
 
-from . import (alerts, analytics, appdata, charts, crafting, demo, exporters, lua, report, runner, selfupdate, theme,
-               trades_import, updater, vendors, viewmodel as vm)
+from . import (alerts, analytics, appdata, charts, crafting, demo, exporters, lua, mobile_server, report, runner,
+               selfupdate, theme, trades_import, updater, vendors, viewmodel as vm)
 from .blizzard import ApiError, Client
 from .core import Settings, fmt_money, parse_money
 from .links import item_url, npc_url
@@ -48,6 +49,10 @@ class App(tk.Tk):
         self.auto = False
         self.sort_state = {}
         self.sel_item = None
+        self.mobile_srv = None
+        if cfg.get("mobile_server"):
+            self.after(1500, self.phone_start)
+        self.protocol("WM_DELETE_WINDOW", self._close)
         self.base = cfg.get("wowhead_base")
         self._build()
         self.after(300, self._poll)
@@ -69,6 +74,7 @@ class App(tk.Tk):
         self.run_btn = ttk.Button(btns, text="▶  Выполнить сейчас", style="Accent.TButton", command=self.run_now)
         self.run_btn.pack(side="left", padx=(0, 8))
         ttk.Button(btns, text="Вендоры…", command=self.open_vendors).pack(side="left", padx=4)
+        ttk.Button(btns, text="Телефон…", command=self.open_phone).pack(side="left", padx=4)
         ttk.Button(btns, text="Рецепты…", command=self.open_recipes).pack(side="left", padx=4)
         ttk.Button(btns, text="Сделки…", command=self.open_journal).pack(side="left", padx=4)
         ttk.Button(btns, text="Настройки…", command=self.open_settings).pack(side="left", padx=4)
@@ -481,6 +487,30 @@ class App(tk.Tk):
             messagebox.showinfo("График цены", "Выполните поиск и выберите строку с товаром.")
             return
         PriceChartDialog(self, self.sel_item)
+
+    def _close(self):
+        self.phone_stop()
+        self.destroy()
+
+    def open_phone(self):
+        PhoneDialog(self)
+
+    def phone_start(self):
+        """Запускает локальный сервер для телефона. -> текст ошибки или None."""
+        if self.mobile_srv:
+            return None
+        token = mobile_server.ensure_token(self.cfg)
+        appdata.save_cfg(self.h, self.cfg)
+        try:
+            self.mobile_srv = mobile_server.MobileServer(self.h, token, int(self.cfg.get("mobile_port", 8765))).start()
+        except OSError as exc:
+            return f"Не удалось запустить: порт {self.cfg.get('mobile_port', 8765)} занят или закрыт ({exc})."
+        return None
+
+    def phone_stop(self):
+        if self.mobile_srv:
+            self.mobile_srv.stop()
+            self.mobile_srv = None
 
     def open_recipes(self):
         RecipesDialog(self)
@@ -1013,6 +1043,77 @@ class VendorsDialog(tk.Toplevel):
             webbrowser.open(npc_url(v.npc_id, self.app.base))
         else:
             messagebox.showinfo("Wowhead", "У выбранного товара не указан ID NPC.", parent=self)
+
+
+class PhoneDialog(tk.Toplevel):
+    """Просмотр отчёта на телефоне: ссылка в домашней сети и файл для переноса вручную."""
+
+    def __init__(self, app: App):
+        super().__init__(app, bg=theme.P["bg"])
+        self.app = app
+        self.title("Телефон")
+        self.geometry("680x470")
+        ttk.Label(self, text="Отчёт на телефоне", font=("Segoe UI", 13, "bold"), padding=(14, 12, 14, 0)).pack(anchor="w")
+        ttk.Label(self, wraplength=640, style="Muted.TLabel", padding=(14, 4), text=(
+            "Телефон показывает последний отчёт: топ, вендоры, категории, дефицит. Сам поиск выполняется на компьютере, "
+            "на телефоне он не запускается. Компьютер и телефон должны быть в одной сети Wi-Fi, а приложение открыто. "
+            "При первом запуске Windows спросит про сетевой доступ: разрешите для частной сети.")).pack(anchor="w")
+        self.state = ttk.Label(self, text="", padding=(14, 6))
+        self.state.pack(anchor="w")
+        self.box = tk.Listbox(self, height=3, activestyle="none")
+        self.box.pack(fill="x", padx=14)
+        bar = ttk.Frame(self, padding=14)
+        bar.pack(fill="x")
+        self.toggle = ttk.Button(bar, text="", style="Accent.TButton", command=self.on_toggle)
+        self.toggle.pack(side="left")
+        ttk.Button(bar, text="Скопировать ссылку", command=self.copy).pack(side="left", padx=8)
+        ttk.Button(bar, text="Сохранить файл для телефона…", command=self.save_file).pack(side="left")
+        self.auto = tk.BooleanVar(value=bool(app.cfg.get("mobile_server")))
+        ttk.Checkbutton(self, text="Включать при запуске приложения", variable=self.auto, command=self.on_auto).pack(anchor="w", padx=14)
+        ttk.Label(self, wraplength=640, style="Muted.TLabel", padding=14, text=(
+            "Без общей сети: сохраните файл mobile.json, отправьте его себе (мессенджер, облако), на телефоне откройте страницу по "
+            "ссылке выше или любой файл index.html из папки mobile и выберите этот файл. Ссылка содержит секретный код: "
+            "не публикуйте её. Из интернета адрес недоступен.")).pack(anchor="w")
+        self.refresh()
+
+    def refresh(self):
+        srv = self.app.mobile_srv
+        self.toggle.config(text="Остановить" if srv else "Запустить")
+        self.box.delete(0, "end")
+        if srv:
+            urls = srv.urls()
+            self.state.config(text="Сервер работает. Откройте на телефоне:" if urls else "Сервер работает, но адрес в сети не найден.")
+            for u in urls:
+                self.box.insert("end", u)
+        else:
+            self.state.config(text="Сервер остановлен.")
+
+    def on_toggle(self):
+        if self.app.mobile_srv:
+            self.app.phone_stop()
+        else:
+            err = self.app.phone_start()
+            if err:
+                messagebox.showerror("Телефон", err, parent=self)
+        self.refresh()
+
+    def on_auto(self):
+        self.app.cfg["mobile_server"] = self.auto.get()
+        appdata.save_cfg(self.app.h, self.app.cfg)
+
+    def copy(self):
+        if self.box.size():
+            self.clipboard_clear()
+            self.clipboard_append(self.box.get(0))
+
+    def save_file(self):
+        src = self.app.h / "mobile.json"
+        if not src.exists():
+            return messagebox.showinfo("Телефон", "Сначала выполните поиск: файла ещё нет.", parent=self)
+        dst = filedialog.asksaveasfilename(parent=self, defaultextension=".json", initialfile="mobile.json",
+                                           filetypes=[("JSON", "*.json")])
+        if dst:
+            shutil.copyfile(src, dst)
 
 
 class JournalDialog(tk.Toplevel):

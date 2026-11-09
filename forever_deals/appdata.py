@@ -20,7 +20,7 @@ DEFAULT_CFG = {
     "retry_minutes": 30, "keep_reports": 30, "realm_limit": 200,
     "house_cuts": {}, "github_token": "",
     "discord_webhook": "", "telegram_token": "", "telegram_chat_id": "",
-    "hourly_check": False, "source": "blizzard", "web_source_url": "", "web_source_file": "", "web_price_unit": "copper", "wowhead_check": True, "update_check": True, "wowhead_budget": 40, "compare_houses": [], "house_name": "Основной", "drop_pct": 0.7, "alert_digest": True,
+    "hourly_check": False, "source": "blizzard", "web_source_url": "", "web_source_file": "", "web_price_unit": "copper", "wowhead_check": True, "update_check": True, "mobile_server": False, "mobile_port": 8765, "wowhead_budget": 40, "compare_houses": [], "house_name": "Основной", "drop_pct": 0.7, "alert_digest": True,
 }
 
 

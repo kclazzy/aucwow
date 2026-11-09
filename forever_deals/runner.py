@@ -4,7 +4,7 @@ from __future__ import annotations
 import time
 from datetime import datetime
 
-from . import alerts, appdata, crafting, demo, disenchant, pipeline, report, vendors, websource, wowhead
+from . import alerts, appdata, crafting, demo, disenchant, mobile, pipeline, report, vendors, websource, wowhead
 from .blizzard import Client
 from .store import Store
 
@@ -99,6 +99,7 @@ def _run(h, cfg, progress, mark=True):
         path.write_text(md, encoding="utf-8")
         path.with_suffix(".html").write_text(report.markdown_to_html(md), encoding="utf-8")
         appdata.prune_reports(h, int(cfg.get("keep_reports", 30)))
+        mobile.write(h, res, items, cfg)                       # данные для телефона (mobile.json)
         if mark and not cfg.get("demo"):
             appdata.mark_run(h, datetime.fromtimestamp(now))
         return res, md, path, items
