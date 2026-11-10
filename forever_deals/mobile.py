@@ -16,7 +16,7 @@ def _tab(tid, title, cols, rows, base, cat=None, hint=""):
             "rows": [{"v": [str(x) for x in vals], "id": ids[0], "url": links.item_url(ids[0], base)} for ids, vals in rows]}
 
 
-def build_export(res, items, cfg) -> dict:
+def build_export(res, items, cfg, s=None) -> dict:
     base = cfg.get("wowhead_base") or links.WOWHEAD
     ts = res.meta.get("ts") or datetime.now().timestamp()
     source = "демо" if cfg.get("demo") else ("веб-страница" if cfg.get("source") == "web" else "API Blizzard")
@@ -30,6 +30,8 @@ def build_export(res, items, cfg) -> dict:
         _tab("short", "Дефицит", vm.SHORT_COLS, vm.shortage_table(res), base, cat=1),
         *([_tab("factions", "Фракции", vm.faction_cols(res), vm.faction_table(res), base, cat=1,
                 hint="Цены по фракциям без порогов выгоды; чистыми — с учётом комиссии.")] if res.faction_rows else []),
+        *([_tab("snipe", "Снайпер", vm.SNIPE_COLS, vm.snipe_table(res, s), base, cat=None,
+                hint="Лоты заметно дешевле обычной цены: проверьте цену в игре перед покупкой.")] if s is not None else []),
         _tab("arb", "Аукционы", vm.ARB_COLS, vm.arb_table(res), base, hint="Купить на одном аукционе, продать на другом."),
     ]
     return {"version": VERSION, "demo": bool(cfg.get("demo")), "source": source,
@@ -38,9 +40,9 @@ def build_export(res, items, cfg) -> dict:
             "warnings": list(res.warnings), "tabs": tabs}
 
 
-def write(home, res, items, cfg) -> Path:
+def write(home, res, items, cfg, s=None) -> Path:
     path = Path(home) / "mobile.json"
     tmp = path.with_suffix(".tmp")
-    tmp.write_text(json.dumps(build_export(res, items, cfg), ensure_ascii=False), encoding="utf-8")
+    tmp.write_text(json.dumps(build_export(res, items, cfg, s), ensure_ascii=False), encoding="utf-8")
     tmp.replace(path)                      # подмена целиком: телефон не увидит наполовину записанный файл
     return path

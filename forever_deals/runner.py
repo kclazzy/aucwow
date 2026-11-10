@@ -118,7 +118,7 @@ def _run(h, cfg, progress, mark=True):
         path.write_text(md, encoding="utf-8")
         path.with_suffix(".html").write_text(report.markdown_to_html(md), encoding="utf-8")
         appdata.prune_reports(h, int(cfg.get("keep_reports", 30)))
-        mobile.write(h, res, items, cfg)                       # данные для телефона (mobile.json)
+        mobile.write(h, res, items, cfg, s)                     # данные для телефона (mobile.json)
         if mark and not cfg.get("demo"):
             appdata.mark_run(h, datetime.fromtimestamp(now))
         return res, md, path, items

@@ -7,6 +7,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+from forever_deals.core import Settings
 from forever_deals import appdata, mobile, mobile_server, runner
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -24,11 +25,11 @@ class ExportTest(unittest.TestCase):
     def test_export_has_tabs_with_matching_columns_and_links(self):
         d, h, cfg, res, items = demo_run()
         self.addCleanup(d.cleanup)
-        data = mobile.build_export(res, items, cfg)
+        data = mobile.build_export(res, items, cfg, Settings())
         self.assertEqual(data["version"], 1)
         self.assertTrue(data["demo"])
         tabs = {t["id"]: t for t in data["tabs"]}
-        self.assertTrue({"top", "vendor", "possible", "catalog", "arb", "short"} <= set(tabs))
+        self.assertTrue({"top", "vendor", "possible", "catalog", "arb", "short", "snipe"} <= set(tabs))
         for t in tabs.values():
             for row in t["rows"]:
                 self.assertEqual(len(row["v"]), len(t["cols"]), t["id"])
