@@ -7,8 +7,8 @@ from .core import fmt_money, parse_money
 from .report import shopping_route
 
 TOP_COLS = ["#", "Товар", "Категория", "Закупка", "Продажа", "Чистыми/шт", "Наценка", "ROI",
-            "Продаж/день", "Запас, дн.", "Брать, шт", "Выставлять по", "Прибыль/день", "Метки"]
-TOP_WIDTHS = [30, 200, 120, 75, 90, 100, 75, 50, 95, 80, 80, 120, 110, 110]
+            "Продаж/день", "Запас, дн.", "Брать, шт", "Дней на продажу", "Риск", "Выставлять по", "Прибыль/день", "Метки"]
+TOP_WIDTHS = [30, 200, 120, 75, 90, 100, 75, 50, 95, 80, 80, 110, 70, 120, 110, 110]
 CATALOG_COLS = ["Товар", "Категория", "Мин. цена", "Рыночная", "Шт. на АХ", "Продаж/день", "У вендора", "Цена у вендора",
                 "Наценка", "Примечание"]
 CATALOG_WIDTHS = [240, 130, 90, 90, 90, 95, 85, 105, 80, 260]
@@ -18,6 +18,8 @@ SHORT_COLS = ["Товар", "Профессия", "Лотов, шт.", "Прод
 SHORT_WIDTHS = [260, 140, 90, 100, 90, 110, 120]
 RESET_COLS = ["Товар", "Выкупить, шт.", "Затраты", "Перевыставить по", "Прибыль", "Дней на продажу"]
 RESET_WIDTHS = [260, 110, 110, 140, 120, 130]
+SNIPE_COLS = ["Товар", "Купить, шт.", "Лучшая цена", "Обычная цена", "Скидка", "Затраты", "Прибыль"]
+SNIPE_WIDTHS = [260, 100, 110, 110, 80, 110, 120]
 CRAFT_COLS = ["Изделие", "Профессия", "Реагенты", "Себестоимость", "Выручка", "Прибыль", "ROI", "Примечание"]
 CRAFT_WIDTHS = [190, 120, 260, 100, 90, 100, 60, 210]
 DE_COLS = ["Предмет", "Цена покупки", "Ценность дизенчанта", "Прибыль"]
@@ -88,7 +90,9 @@ def top_rows(res, items):
         roi = f"{e.roi:.1f}" if c.buy_source == "vendor" else "—"
         out.append(((c.item_id, v.npc_id if v else None),
                     (n, c.name, c.category, fmt_money(c.buy_price), fmt_money(e.sell_price), fmt_money(e.net),
-                     f"×{e.markup:.1f}", roi, _rate(e), _days(e), e.qty, fmt_money(e.list_price), fmt_money(round(e.epd)),
+                     f"×{e.markup:.1f}", roi, _rate(e), _days(e), e.qty,
+                     "н/д" if e.sell_days is None else f"{e.sell_days:.1f}", e.risk or "н/д",
+                     fmt_money(e.list_price), fmt_money(round(e.epd)),
                      "; ".join(e.flags) or "—")))
     return out
 
@@ -180,6 +184,13 @@ def reset_table(res, s):
     return [((r["item_id"], None), (r["name"], r["units"], fmt_money(r["cost"]), fmt_money(r["target"]), fmt_money(r["profit"]),
                                     "н/д" if r["days_to_sell"] is None else f"{r['days_to_sell']:.1f}"))
             for r in analytics.reset_rows(res, s)]
+
+
+def snipe_table(res, s):
+    from . import analytics
+    return [((r["item_id"], None), (r["name"], r["units"], fmt_money(r["best"]), fmt_money(r["usual"]),
+                                    f"−{r['discount'] * 100:.0f}%", fmt_money(r["cost"]), fmt_money(r["profit"])))
+            for r in analytics.snipe_rows(res, s)]
 
 
 def craft_table(res):

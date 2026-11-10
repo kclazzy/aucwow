@@ -83,3 +83,18 @@ def reset_rows(res, s, limit: int = 15):
             out.append(dict(item_id=c.item_id, name=c.name, units=r.units, cost=r.cost, target=target,
                             profit=r.profit, days_to_sell=days))
     return sorted(out, key=lambda r: (-r["profit"], r["item_id"]))[:limit]
+
+
+def snipe_rows(res, s, limit: int = 15):
+    """Снайпер: лоты заметно дешевле обычной цены (по истории). Лучшие по прибыли первыми."""
+    from .core import snipe_opportunity
+    out = []
+    for item_id, usual in res.usual.items():
+        lots = res.listings.get(item_id)
+        if not lots:
+            continue
+        r = snipe_opportunity(lots, usual, s.cut, s.snipe_pct, s.min_net, s.budget_item)
+        if r.units > 0 and r.profit > 0:
+            out.append(dict(item_id=item_id, name=res.all_names.get(item_id, f"#{item_id}"), units=r.units, cost=r.cost,
+                            best=r.best, usual=usual, discount=r.discount, profit=r.profit))
+    return sorted(out, key=lambda r: (-r["profit"], r["item_id"]))[:limit]

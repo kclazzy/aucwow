@@ -42,6 +42,10 @@ class Settings:
     min_quantity: int = 3        # меньше штук на аукционе = изолированный лот, цене не верим
     undercut: int = 1            # на сколько меди ниже минимальной выставлять лот
     sales_haircut: float = 0.7   # оценка по убыли лотов завышена (отмены, перевыставления): берём долю
+    snipe_pct: float = 0.30      # лот дешевле обычной цены на столько и больше = возможность для снайпера
+    risk_mid: float = 0.15       # разброс цены (σ/медиана) от этого значения риск «средний»
+    risk_high: float = 0.35      # от этого значения риск «высокий»
+    risk_penalty: float = 0.30   # на сколько снижается прибыль/день при высоком риске при ранжировании
 
 
 @dataclass
@@ -65,6 +69,7 @@ class Candidate:
     location: str = ""
     profession: str = "Прочее"  # чей рецепт или откуда сырьё
     api_buy_price: int = 0       # цена покупки из API предмета (не подтверждает, что предмет продаёт NPC)
+    volatility: Optional[float] = None   # разброс суточных минимумов цены (σ/медиана), None = мало истории
 
 
 @dataclass
@@ -80,6 +85,9 @@ class Evaluation:
     stock_days: Optional[float] = None   # на сколько дней хватит лотов при текущих продажах
     list_price: int = 0                  # рекомендуемая цена выставления за шт.
     deposit_loss: float = 0.0
+    risk: str = ""                       # "низкий" | "средний" | "высокий" | "" (мало истории)
+    sell_days: Optional[float] = None    # за сколько дней продастся наша партия (qty ÷ наша доля продаж)
+    discount: float = 0.0                # на сколько минимум ниже обычной цены (доля)
     flags: list = field(default_factory=list)
     rejects: list = field(default_factory=list)
 
@@ -112,6 +120,15 @@ def evaluate(c: Candidate, s: Settings) -> Evaluation:
     if not real_purchase and c.api_buy_price and e.sell_price >= s.min_markup * c.api_buy_price:
         e.flags.append(f"возможно продаётся NPC (API: {fmt_money(c.api_buy_price)}), проверьте")
     e.epd = e.rate_used * s.share * e.net
+    if c.usual_price:
+        e.discount = max(0.0, 1 - c.min_price / c.usual_price)
+        if e.discount >= s.snipe_pct:
+            e.flags.append(f"минимум на {e.discount * 100:.0f}% ниже обычной: снайп или манипуляция, проверьте")
+    if c.volatility is not None:
+        e.risk = "высокий" if c.volatility >= s.risk_high else "средний" if c.volatility >= s.risk_mid else "низкий"
+        if e.risk == "высокий":
+            e.epd *= 1 - s.risk_penalty
+            e.flags.append("нестабильная цена")
     if c.sales_per_day:
         e.stock_days = c.quantity / c.sales_per_day
     floor = math.ceil((c.buy_price + e.deposit_loss + s.min_net) / (1 - s.cut))
@@ -134,6 +151,8 @@ def evaluate(c: Candidate, s: Settings) -> Evaluation:
     by_demand = math.ceil(e.rate_used * s.share * s.horizon_days)
     caps = [by_budget, by_demand] + ([c.stock] if c.stock is not None else [])
     e.qty = max(0, int(min(caps)))
+    if e.qty and e.rate_used * s.share > 0:
+        e.sell_days = e.qty / (e.rate_used * s.share)
     return e
 
 
@@ -190,6 +209,15 @@ def usual_price(daily_mins, min_days: int = 3) -> Optional[int]:
     return int(statistics.median(vals))
 
 
+def volatility(daily_mins, min_days: int = 3) -> Optional[float]:
+    """Разброс суточных минимумов цены относительно медианы (σ/медиана). Мало истории -> None."""
+    vals = [v for v in daily_mins if v]
+    if len(vals) < min_days:
+        return None
+    med = statistics.median(vals)
+    return statistics.pstdev(vals) / med if med else None
+
+
 def parse_money(text: str) -> int:
     """'1з 25с 3м', '1g 25s 3c' или просто число меди -> меди."""
     import re
@@ -230,3 +258,23 @@ def reset_opportunity(listings, target: int, cut: float, min_net: int, budget=No
             break
     revenue = units * unit_revenue
     return Reset(units, cost, revenue, revenue - cost if units else 0)
+
+
+@dataclass(frozen=True)
+class Snipe:
+    units: int
+    cost: int
+    best: int          # самая дешёвая цена за шт.
+    discount: float    # скидка лучшего лота к обычной цене
+    profit: int
+
+
+def snipe_opportunity(listings, usual: int, cut: float, snipe_pct: float, min_net: int, budget=None) -> Snipe:
+    """Снайпер: лоты, цена которых не выше usual*(1-snipe_pct); выкупаем, пока выгодно после комиссии и хватает бюджета."""
+    limit = usual * (1 - snipe_pct)
+    cheap = [(p, q) for p, q in listings if p <= limit]
+    r = reset_opportunity(cheap, usual, cut, min_net, budget)
+    if not r.units:
+        return Snipe(0, 0, 0, 0.0, 0)
+    best = min(p for p, _ in cheap)
+    return Snipe(r.units, r.cost, best, 1 - best / usual, r.profit)

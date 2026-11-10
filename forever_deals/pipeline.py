@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 
 from . import arbitrage, crafting, disenchant
 from .vendors import VendorItem
-from .core import (DAY, Candidate, Settings, aggregate_listings, estimate_sales_per_day, fmt_money, rank, usual_price)
+from .core import (DAY, Candidate, Settings, aggregate_listings, estimate_sales_per_day, fmt_money, rank, usual_price, volatility)
 
 # ID классов предметов как в Retail; для Forever не подтверждены — меняются в config.json
 CLASS_TRADE, CLASS_RECIPE = 7, 9
@@ -63,6 +63,8 @@ class Result:
     faction_rows: list = field(default_factory=list)  # сравнение цен фракций без порогов (источник-страница сравнения)
     catalog: list = field(default_factory=list)       # все просканированные предметы с категориями и признаком вендора
     vendor_check: dict = field(default_factory=dict)  # id -> итог сверки с Wowhead (продаётся ли у вендора)
+    usual: dict = field(default_factory=dict)         # id -> обычная цена (медиана суточных минимумов) для всех предметов с историей
+    all_names: dict = field(default_factory=dict)     # id -> название для таблиц снайпера
 
 
 def _lookup_items(client, store, ids, workers=8):
@@ -92,6 +94,15 @@ def _classify(info, classes):
     if info.get("class_id") == trade and info.get("subclass_id") in sub:
         return "material", sub[info["subclass_id"]]
     return None
+
+
+def _usual_prices(res, store, aggs, now):
+    """Обычная цена по истории для каждого предмета на аукционе: опора для снайпера (не только для кандидатов)."""
+    for i in aggs:
+        u = usual_price([m for _, m in store.daily_mins(i, now - 14 * DAY)])
+        if u:
+            res.usual[i] = u
+            res.all_names[i] = (store.get_item(i) or {}).get("name", f"#{i}")
 
 
 def _compare_houses(res, client, store, aggs, s, cfg):
@@ -247,7 +258,7 @@ def run(client, store, vendor_items: dict, s: Settings, cfg: dict, now: int | No
                 min_price=agg.min_price if agg else None, market_price=agg.market_price if agg else None,
                 vendor_sell=vendor_sell, quantity=agg.quantity if agg else 0, n_auctions=agg.n_auctions if agg else 0,
                 sales_per_day=rate, history_days=store.history_days(item_id, now - 14 * DAY),
-                usual_price=usual_price(mins), stock=v.stock if v else None,
+                usual_price=usual_price(mins), volatility=volatility(mins), stock=v.stock if v else None,
                 api_buy_price=info.get("purchase_price", 0), profession=profession(info, cfg),
                 vendor_name=v.vendor if v else "", location=v.location if v else ""))
         return cands, looked
@@ -274,6 +285,7 @@ def run(client, store, vendor_items: dict, s: Settings, cfg: dict, now: int | No
     res.prices = aggs
     _vendor_flags(res)
     _catalog(res, store, aggs, vendor_items, cands)
+    _usual_prices(res, store, aggs, now)
     _compare_houses(res, client, store, aggs, s, cfg)
     _extras(res, store, aggs, vendor_items, recipes, craft_ids, de_rules, s, now)
     res.sources = client.sources()
